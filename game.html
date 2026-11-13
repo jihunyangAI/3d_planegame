@@ -27,6 +27,27 @@
   .gauge small { font-size: 11px; color: var(--dim); margin-left: 3px; }
   .gauge span { display: block; font-size: 11px; color: var(--dim); }
 
+  #heat { left: 50%; bottom: 62px; width: 260px; margin-left: -130px; }
+  #heat label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; text-align: center; letter-spacing: .08em; }
+  #heat .bar { height: 8px; border-radius: 4px; background: rgba(12,17,24,.6); border: 1px solid rgba(255,255,255,.2); overflow: hidden; }
+  #heat .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffd166, #ff8a3c); border-radius: 3px; }
+  #heat .bar.over { border-color: #ff5a4a; }
+  #heat .bar.over i { background: #ff5a4a; }
+  #hitmark { left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+  #hitmark.show { opacity: 1; }
+  #hitmark i { position: absolute; left: -1px; top: -19px; width: 2px; height: 10px; background: #fff; box-shadow: 0 0 3px #000; transform-origin: 1px 19px; }
+  #hitmark i:nth-child(1) { transform: rotate(45deg); } #hitmark i:nth-child(2) { transform: rotate(135deg); }
+  #hitmark i:nth-child(3) { transform: rotate(225deg); } #hitmark i:nth-child(4) { transform: rotate(315deg); }
+  #hitmark.kill i { background: #ff5a4a; height: 14px; top: -23px; transform-origin: 1px 23px; }
+  #toast { left: 0; right: 0; top: 26%; text-align: center; font-size: 20px; font-weight: 700; color: #ffd166; opacity: 0; transition: opacity .25s; }
+  #toast.show { opacity: 1; transition: none; }
+  #tbars { left: 0; top: 0; }
+  .tbar { position: absolute; left: -24px; top: -3px; width: 48px; height: 6px; border-radius: 3px; background: rgba(12,17,24,.7);
+    border: 1px solid rgba(255,255,255,.35); overflow: hidden; display: none; }
+  .tbar i { display: block; height: 100%; background: #ff5a4a; }
+  #stage em { font-style: normal; display: block; margin-top: 8px; font-size: 13px; color: var(--ink); }
+  #stage em b { display: inline; font-size: 20px; color: #ffd166; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
   #boost { left: 50%; bottom: 26px; width: 260px; margin-left: -130px; }
   #boost label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; text-align: center; letter-spacing: .08em; }
   #boost .bar { height: 8px; border-radius: 4px; background: rgba(12,17,24,.6); border: 1px solid rgba(255,255,255,.2); overflow: hidden; }
@@ -62,9 +83,13 @@
 <div id="app"></div>
 <div id="loading">홍대 상공을 준비하는 중…</div>
 
-<div id="stage" class="hud"><b>홍대 드론 로얄</b>1단계 · 비행 연습</div>
+<div id="stage" class="hud"><b>홍대 드론 로얄</b>2단계 · 사격 연습<em>격추<b id="h-kills">0</b></em></div>
 <div id="cross" class="hud"><i></i><i></i><i></i><i></i><i></i></div>
 <div id="h-warn" class="hud"></div>
+<div id="hitmark" class="hud"><i></i><i></i><i></i><i></i></div>
+<div id="toast" class="hud"></div>
+<div id="tbars" class="hud"></div>
+<div id="heat" class="hud"><label id="h-heat-label">레이저 열</label><div class="bar"><i id="h-heat"></i></div></div>
 <div id="gauges" class="hud">
   <div class="gauge"><span>속도</span><b id="h-speed">0</b><small>km/h</small></div>
   <div class="gauge"><span>고도</span><b id="h-alt">0</b><small>m</small></div>
@@ -74,20 +99,21 @@
 <div id="keys" class="hud">
   <kbd>W</kbd> <kbd>S</kbd> 전진·후진 &nbsp; <kbd>←</kbd> <kbd>→</kbd> 좌우 선회<br>
   <kbd>↑</kbd> <kbd>↓</kbd> 상승·하강 &nbsp; <kbd>Shift</kbd> 부스트<br>
-  <kbd>우클릭</kbd> 줌 &nbsp; <kbd>R</kbd> 처음 위치 &nbsp; <kbd>Esc</kbd> 일시 정지
+  <kbd>Space</kbd> <kbd>좌클릭</kbd> 레이저 &nbsp; <kbd>우클릭</kbd> 줌<br>
+  <kbd>R</kbd> 처음 위치 &nbsp; <kbd>M</kbd> 소리 &nbsp; <kbd>Esc</kbd> 일시 정지
 </div>
 
 <div id="overlay">
   <div class="card">
     <h1 id="ov-title">홍대 드론 로얄</h1>
-    <p>홍대입구역 9번출구 상공. 넓어진 도로와 건물 사이를 날아 보세요.</p>
+    <p>홍대입구역 9번출구 상공. 건물 사이를 날며 빨간 표적 드론을 격추하세요.</p>
     <table>
       <tr><td>마우스</td><td>조준 · 기수 방향</td></tr>
       <tr><td>W / S</td><td>전진 / 후진</td></tr>
       <tr><td>↑ / ↓</td><td>상승 / 하강</td></tr>
       <tr><td>← / →</td><td>좌우 선회 (기수를 돌림)</td></tr>
       <tr><td>Shift</td><td>부스트</td></tr>
-      <tr><td>Space · 좌클릭</td><td>레이저 발사 (2단계에서 추가)</td></tr>
+      <tr><td>Space · 좌클릭</td><td>레이저 발사 (연사하면 과열)</td></tr>
       <tr><td>우클릭</td><td>줌</td></tr>
     </table>
     <span id="ov-go">클릭하면 시작합니다</span>
