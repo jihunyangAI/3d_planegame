@@ -31,14 +31,39 @@ export const CFG = {
     assistDeg: 2.2,           // 조준 보정 각도 (0 이면 끔)
     color: 0x35d6ff,
   },
-  target: {                   // 연습용 표적
-    count: 12,
-    hp: 48,
-    hitRadius: 2.2,           // 피격 판정 반지름 (m)
-    respawn: 4,               // 격추 뒤 다시 나타나기까지 (초)
-    spread: 520,              // 플레이어 주변 배치 반경 (m)
-    speed: 5,                 // 움직이는 표적 속도 (m/s)
-    movingRatio: 0.5,         // 움직이는 표적 비율
+  player: {
+    hp: 100,
+    shield: 50,
+    shieldDelay: 5,           // 맞은 뒤 실드가 다시 차기 시작하기까지 (초, 적도 같음)
+    shieldRegen: 12,          // 초당 실드 회복
+    hitRadius: 1.9,           // 피격 판정 반지름 (m)
+    respawn: 3,               // 격추된 뒤 다시 출격하기까지 (초)
+    spawnProtect: 2.5,        // 출격 직후 무적 시간 (초)
+  },
+  bot: {                      // 적 (쉬움 난이도)
+    count: 7,
+    hp: 60,
+    shield: 30,
+    hitRadius: 2.2,
+    speedScale: 0.8,          // 플레이어 대비 속도
+    turnRate: 2.2,            // 선회 속도 (rad/s)
+    sight: 190,               // 시야 거리 (m)
+    huntChance: 0.6,          // 순찰할 때 플레이어 근처로 향할 확률
+    reaction: 1.0,            // 상대를 본 뒤 알아채기까지 (초)
+    maxOnPlayer: 2,           // 플레이어를 동시에 노릴 수 있는 적의 수
+    aimTime: 0.7,             // 쏘기 전 조준선을 보여 주는 시간 (초)
+    burst: 4,                 // 한 번에 쏘는 발 수
+    burstRate: 4,             // 점사 속도 (발/초)
+    cooldown: [1.4, 2.6],     // 점사 사이 쉬는 시간 (초)
+    damage: 8,
+    spread: 2.0,              // 탄 퍼짐 (클수록 덜 맞는다. 2.0 이면 가까이서 약 25% 명중)
+    lead: 0.6,                // 이동 예측 정도 (1 이면 정확히 예측)
+    fireRange: 170,           // 사격 거리 (m)
+    near: 35, far: 80,        // 교전 때 유지하려는 거리 (m)
+    fleeBelow: 0.35,          // 체력+실드가 이 비율 아래면 달아난다
+    fleeTime: 7,
+    respawn: 5,               // 격추된 뒤 다시 나타나기까지 (초)
+    spawnAway: 160,           // 플레이어에게서 이만큼 떨어진 곳에 나타난다 (m)
   },
   camera: { dist: 9, height: 2.6, fov: 62, zoomFov: 30, boostFov: 8 },
   mouse: { sens: 0.0022, pitchMax: 1.2 },

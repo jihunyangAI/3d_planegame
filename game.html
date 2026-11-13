@@ -48,6 +48,31 @@
   #stage em { font-style: normal; display: block; margin-top: 8px; font-size: 13px; color: var(--ink); }
   #stage em b { display: inline; font-size: 20px; color: #ffd166; margin-left: 4px; font-variant-numeric: tabular-nums; }
 
+  #stage em b.d { color: #ff8a8d; }
+  #feed { margin-top: 10px; font-size: 12.5px; line-height: 1.6; color: var(--dim); }
+  #stage #feed b { display: inline; font-size: inherit; }
+  #stage #feed b.me { color: var(--cyan); } #stage #feed b.foe { color: #ff8a7d; }
+  #vitals { left: 20px; bottom: 96px; width: 214px; }
+  .vital { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--dim); }
+  .vital span { width: 26px; }
+  .vital b { width: 28px; text-align: right; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .vital .bar { flex: 1; height: 9px; border-radius: 5px; background: rgba(12,17,24,.6); border: 1px solid rgba(255,255,255,.2); overflow: hidden; }
+  .vital .bar i { display: block; height: 100%; border-radius: 4px; }
+  .vital.shield .bar i { background: #6fb8ff; }
+  .vital.hp .bar i { background: #6ee7a0; }
+  .vital.hp .bar.low i { background: #ff5a4a; }
+  #vignette { inset: 0; opacity: 0; background: radial-gradient(ellipse at center, rgba(255,40,30,0) 45%, rgba(255,40,30,.55) 100%); }
+  #threats { left: 50%; top: 50%; width: 0; height: 0; }
+  #threats i { position: absolute; left: -11px; top: -8px; width: 0; height: 0; display: none; border-left: 11px solid transparent; border-right: 11px solid transparent;
+    border-bottom: 16px solid #ffd166; filter: drop-shadow(0 0 3px rgba(0,0,0,.9)); }
+  #threats i.hit { border-bottom-color: #ff5a4a; }
+  #h-warn.danger { color: #ffd166; }
+  #dead { left: 0; right: 0; top: 36%; text-align: center; display: none; }
+  #dead.show { display: block; }
+  #dead b { display: block; font-size: 34px; color: #ff8a7d; letter-spacing: -.02em; }
+  #dead span { font-size: 14px; color: var(--ink); }
+  #dead i { font-style: normal; font-weight: 700; color: #ffd166; }
+
   #boost { left: 50%; bottom: 26px; width: 260px; margin-left: -130px; }
   #boost label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; text-align: center; letter-spacing: .08em; }
   #boost .bar { height: 8px; border-radius: 4px; background: rgba(12,17,24,.6); border: 1px solid rgba(255,255,255,.2); overflow: hidden; }
@@ -83,13 +108,20 @@
 <div id="app"></div>
 <div id="loading">홍대 상공을 준비하는 중…</div>
 
-<div id="stage" class="hud"><b>홍대 드론 로얄</b>2단계 · 사격 연습<em>격추<b id="h-kills">0</b></em></div>
+<div id="stage" class="hud"><b>홍대 드론 로얄</b>3단계 · 교전 연습<em>격추<b id="h-kills">0</b> &nbsp; 추락<b id="h-deaths" class="d">0</b></em><div id="feed"></div></div>
 <div id="cross" class="hud"><i></i><i></i><i></i><i></i><i></i></div>
 <div id="h-warn" class="hud"></div>
+<div id="vignette" class="hud"></div>
+<div id="threats" class="hud"></div>
+<div id="dead" class="hud"><b>격추당했습니다</b><span><i id="dead-by"></i>의 레이저에 맞았습니다 · <i id="dead-in">3.0</i>초 뒤 다시 출격</span></div>
 <div id="hitmark" class="hud"><i></i><i></i><i></i><i></i></div>
 <div id="toast" class="hud"></div>
 <div id="tbars" class="hud"></div>
 <div id="heat" class="hud"><label id="h-heat-label">레이저 열</label><div class="bar"><i id="h-heat"></i></div></div>
+<div id="vitals" class="hud">
+  <div class="vital shield"><span>실드</span><div class="bar"><i id="h-shield"></i></div><b id="h-shield-num">50</b></div>
+  <div class="vital hp"><span>체력</span><div class="bar"><i id="h-hp"></i></div><b id="h-hp-num">100</b></div>
+</div>
 <div id="gauges" class="hud">
   <div class="gauge"><span>속도</span><b id="h-speed">0</b><small>km/h</small></div>
   <div class="gauge"><span>고도</span><b id="h-alt">0</b><small>m</small></div>
@@ -100,13 +132,13 @@
   <kbd>W</kbd> <kbd>S</kbd> 전진·후진 &nbsp; <kbd>←</kbd> <kbd>→</kbd> 좌우 선회<br>
   <kbd>↑</kbd> <kbd>↓</kbd> 상승·하강 &nbsp; <kbd>Shift</kbd> 부스트<br>
   <kbd>Space</kbd> <kbd>좌클릭</kbd> 레이저 &nbsp; <kbd>우클릭</kbd> 줌<br>
-  <kbd>R</kbd> 처음 위치 &nbsp; <kbd>M</kbd> 소리 &nbsp; <kbd>Esc</kbd> 일시 정지
+  <kbd>R</kbd> 처음부터 &nbsp; <kbd>M</kbd> 소리 &nbsp; <kbd>Esc</kbd> 일시 정지
 </div>
 
 <div id="overlay">
   <div class="card">
     <h1 id="ov-title">홍대 드론 로얄</h1>
-    <p>홍대입구역 9번출구 상공. 건물 사이를 날며 빨간 표적 드론을 격추하세요.</p>
+    <p>홍대입구역 9번출구 상공. 빨간 적 드론 7대가 날아다닙니다. 붉은 조준선이 보이면 곧 쏜다는 뜻이니 피하세요.</p>
     <table>
       <tr><td>마우스</td><td>조준 · 기수 방향</td></tr>
       <tr><td>W / S</td><td>전진 / 후진</td></tr>

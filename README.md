@@ -13,7 +13,7 @@
 
 ## 드론 게임 (개발 중)
 
-지도 위를 드론으로 날아다니는 배틀로얄 게임입니다. 지금은 2단계(비행, 레이저 사격, 연습용 표적)까지 되어 있습니다.
+지도 위를 드론으로 날아다니는 배틀로얄 게임입니다. 지금은 3단계(비행, 레이저 사격, 적 AI와의 교전)까지 되어 있습니다.
 
 ```
 python -m http.server 8765
@@ -21,7 +21,7 @@ python -m http.server 8765
 
 을 실행하고 브라우저에서 `http://localhost:8765/game.html`을 엽니다. (`game.html`은 파일을 직접 열면 동작하지 않습니다.)
 
-- 마우스 조준 · `W`/`S` 전후진 · `←`/`→` 좌우 선회 · `↑`/`↓` 상승/하강 · `Space`/좌클릭 레이저 · `Shift` 부스트 · 우클릭 줌 · `R` 처음 위치 · `M` 소리
+- 마우스 조준 · `W`/`S` 전후진 · `←`/`→` 좌우 선회 · `↑`/`↓` 상승/하강 · `Space`/좌클릭 레이저 · `Shift` 부스트 · 우클릭 줌 · `R` 처음부터 · `M` 소리
 - 게임용 지도 `map_game.js`는 도로를 넓히고(대로 36m, 중간 도로 24m, 골목 14m) 건물 높이를 1.5배(최소 12m)로 키운 것입니다. `python build_map.py --game`으로 다시 만들며 `shapely`가 필요합니다.
 - 조작감과 수치는 `js/config.js`에서 바꿉니다.
 
@@ -33,7 +33,7 @@ python -m http.server 8765
 | `map_data.js` | 지도 데이터 (`build_map.py`가 생성) |
 | `build_map.py` | OSM 원본을 미터 좌표의 압축 데이터로 변환 |
 | `data/` | Overpass API에서 받은 OSM 원본 |
-| `game.html`, `js/` | 드론 게임 (`city.js` 도시 렌더링, `world.js` 충돌, `drone.js` 드론, `weapons.js` 레이저, `targets.js` 표적, `fx.js` 효과, `audio.js` 효과음, `main.js` 게임 루프) |
+| `game.html`, `js/` | 드론 게임 (`city.js` 도시 렌더링, `world.js` 충돌, `drone.js` 드론, `weapons.js` 레이저, `fighter.js` 체력·실드, `nav.js` 길찾기, `bots.js` 적 AI, `fx.js` 효과, `audio.js` 효과음, `main.js` 게임 루프) |
 | `map_game.js` | 게임용 지도 데이터 (`build_map.py --game`이 생성) |
 
 데이터를 다시 만들려면:

@@ -64,6 +64,7 @@ export class Drone {
     this.vel = new THREE.Vector3();
     this.yaw = 0;
     this._yawRate = 0;
+    this.speedScale = 1;        // 속도 배율 (적은 조금 느리다)
     this.boost = CFG.drone.boostMax;
     this.boosting = false;
     this.bumped = false;        // 이번 프레임에 벽에 닿았는가
@@ -100,7 +101,7 @@ export class Drone {
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     let hx = -sin * cmd.fwd + cos * cmd.right, hz = -cos * cmd.fwd - sin * cmd.right;
     const hl = Math.hypot(hx, hz);
-    const sp = this.boosting ? c.boostSpeed : c.speed;
+    const sp = (this.boosting ? c.boostSpeed : c.speed) * this.speedScale;
     if (hl > 1) { hx /= hl; hz /= hl; }
     const k = 1 - Math.exp(-c.accel * dt);
     this.vel.x += (hx * sp - this.vel.x) * k;

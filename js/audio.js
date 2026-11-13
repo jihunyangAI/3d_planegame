@@ -31,7 +31,8 @@ function noise(dur, vol, cutoff0, cutoff1) {
 
 // vol: 0~1 (거리에 따른 감쇠는 부르는 쪽에서)
 export const sfx = {
-  laser(vol = 1) { if (!ctx) return; tone('sawtooth', 1250, 240, 0.13, 0.11 * vol); tone('square', 620, 130, 0.1, 0.05 * vol); },
+  laser(vol = 1, pitch = 1) { if (!ctx) return; tone('sawtooth', 1250 * pitch, 240 * pitch, 0.13, 0.11 * vol); tone('square', 620 * pitch, 130 * pitch, 0.1, 0.05 * vol); },
+  hurt(shield) { if (!ctx) return; if (shield) tone('sine', 520, 260, 0.14, 0.22); else { tone('sawtooth', 210, 70, 0.2, 0.26); noise(0.14, 0.2, 2600, 500); } },
   hit(vol = 1) { if (!ctx) return; tone('triangle', 1900, 900, 0.07, 0.2 * vol); },
   wall(vol = 1) { if (!ctx) return; noise(0.07, 0.1 * vol, 4000, 900); },
   explode(vol = 1) { if (!ctx) return; noise(0.7, 0.6 * vol, 1800, 70); tone('sine', 140, 35, 0.5, 0.45 * vol); },
