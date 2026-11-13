@@ -1,0 +1,127 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-11-13T03:46:36Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "node",
+  "id": 3404932004,
+  "lat": 37.5585121,
+  "lon": 126.9253023,
+  "tags": {
+    "description": "홍대입구역 3번출구",
+    "description:en": "Hongik Univ. Station gate 3",
+    "description:ja": "弘大入口駅 3番出口",
+    "railway": "subway_entrance",
+    "ref": "3"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932005,
+  "lat": 37.5580814,
+  "lon": 126.9259593,
+  "tags": {
+    "description": "홍대입구역 4번출구",
+    "description:en": "Hongik Univ. Station gate 4",
+    "description:ja": "弘大入口駅 4番出口",
+    "railway": "subway_entrance",
+    "ref": "4"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932006,
+  "lat": 37.5576965,
+  "lon": 126.9269890,
+  "tags": {
+    "description": "홍대입구역 5번 출구",
+    "description:en": "Hongik Univ. Station gate 5",
+    "railway": "subway_entrance",
+    "ref": "5"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932007,
+  "lat": 37.5569743,
+  "lon": 126.9273771,
+  "tags": {
+    "description": "홍대입구역 7번 출구",
+    "description:en": "Hongik Univ. Station gate 7",
+    "railway": "subway_entrance",
+    "ref": "7",
+    "wheelchair": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932008,
+  "lat": 37.5566222,
+  "lon": 126.9287032,
+  "tags": {
+    "description": "홍대입구역 6번 출구",
+    "description:en": "Hongik Univ. Station gate 6",
+    "railway": "subway_entrance",
+    "ref": "6",
+    "wheelchair": "no"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932009,
+  "lat": 37.5571558,
+  "lon": 126.9238879,
+  "tags": {
+    "description": "홍대입구역 2번출구",
+    "description:en": "Hongik Univ. Station gate 2",
+    "description:ja": "弘大入口駅 2番出口",
+    "railway": "subway_entrance",
+    "ref": "2"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932010,
+  "lat": 37.5568887,
+  "lon": 126.9241233,
+  "tags": {
+    "description": "홍대입구역 8번출구",
+    "description:en": "Hongik Univ. Station gate 8",
+    "railway": "subway_entrance",
+    "ref": "8"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932011,
+  "lat": 37.5560397,
+  "lon": 126.9229218,
+  "tags": {
+    "description": "홍대입구역 9번출구",
+    "description:en": "Hongik Univ. Station gate 9",
+    "description:ja": "弘大入口駅 9番出口",
+    "railway": "subway_entrance",
+    "ref": "9"
+  }
+},
+{
+  "type": "node",
+  "id": 3404932012,
+  "lat": 37.5562768,
+  "lon": 126.9226779,
+  "tags": {
+    "description": "홍대입구역 1번출구",
+    "description:en": "Hongik Univ. Station gate 1",
+    "description:ja": "弘大入口駅 1番出口",
+    "railway": "subway_entrance",
+    "ref": "1"
+  }
+}
+
+  ]
+}
