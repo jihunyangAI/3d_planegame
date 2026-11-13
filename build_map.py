@@ -1,6 +1,9 @@
 """OSM 원본(data/osm_raw.json, data/osm_extra.json)을 3D 지도용 압축 데이터(map_data.js)로 변환한다.
 
 좌표계: 홍대입구역 9번출구를 원점으로 하는 미터 단위 평면 (x=동쪽, y=북쪽).
+
+    python build_map.py          -> map_data.js (실제 지도)
+    python build_map.py --game   -> map_game.js (드론 게임용: 도로를 넓히고 건물을 높인 지도, shapely 필요)
 """
 import json
 import math
@@ -155,6 +158,52 @@ ROAD = {  # class -> (그룹, 기본 폭 m)
 
 CELL = 40.0
 
+# ---------- 게임용 지도 (--game) ----------
+GAME = "--game" in sys.argv
+GAME_ROAD_W = {0: 30.0, 1: 18.0, 2: 18.0, 3: 12.0, 5: 12.0}   # 그룹 -> 넓힌 차도 폭 (m)
+GAME_CLEAR = {0: 3.2, 1: 3.2, 2: 3.2, 3: 1.0, 5: 1.0}         # 차도 바깥으로 더 비우는 폭 (보도)
+GAME_H_SCALE, GAME_H_MIN = 1.5, 12.0                          # 건물 높이 보정
+GAME_MIN_AREA = 30.0                                          # 깎고 남은 조각이 이보다 작으면 삭제
+
+
+def carve_buildings(buildings, roads):
+    """넓힌 도로에 걸치는 건물을 깎아 내고 높이를 보정한다. (건물 목록, 윤곽 목록)을 돌려준다."""
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+
+    strips = []
+    for grp, w, _, f, _, _ in roads:
+        if grp in GAME_CLEAR:
+            strips.append(LineString(list(zip(f[::2], f[1::2]))).buffer(w / 2 + GAME_CLEAR[grp], quad_segs=3))
+    tree = STRtree(strips)
+
+    pairs = lambda f: list(zip(f[::2], f[1::2]))
+    out, outers, carved, removed = [], [], 0, 0
+    for h, est, name, f, holes, kind in buildings:
+        h = round(max(GAME_H_MIN, h * GAME_H_SCALE), 1)
+        poly = Polygon(pairs(f), [pairs(x) for x in holes])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        near = tree.query(poly, predicate="intersects")   # 이 건물에 걸치는 도로만
+        if len(near) == 0:
+            out.append([h, est, name, f, holes, kind])
+            outers.append(pairs(f))
+            continue
+        carved += 1
+        rest = poly.difference(unary_union([strips[i] for i in near]))
+        # 폭 2m 미만의 얇은 조각을 없애고 윤곽을 정리한다
+        rest = rest.buffer(-1.0, join_style=2).buffer(1.0, join_style=2).simplify(0.2)
+        parts = [g for g in getattr(rest, "geoms", [rest]) if g.geom_type == "Polygon" and g.area >= GAME_MIN_AREA]
+        if not parts:
+            removed += 1
+        for g in parts:
+            o = list(g.exterior.coords)[:-1]
+            out.append([h, est, name, flat(o), [flat(list(r.coords)[:-1]) for r in g.interiors if len(r.coords) >= 4], kind])
+            outers.append(o)
+    sys.stdout.buffer.write(f"game: carved={carved} removed={removed} buildings {len(buildings)} -> {len(out)}\n".encode("utf-8"))
+    return out, outers
+
 
 class Grid:
     """건물 폴리곤 / 도로 선분의 간단한 격자 색인."""
@@ -251,6 +300,7 @@ def main():
     extra = json.loads(extra_path.read_text(encoding="utf-8")) if extra_path.exists() else {"elements": []}
 
     buildings, roads, greens, waters, rails, exits, stations = [], [], [], [], [], [], []
+    outlines = []             # 건물 윤곽 (반올림 전), buildings 와 같은 순서
     grid = Grid()
     green_polys = []          # (kind, pts)
     car_segs = []
@@ -268,7 +318,7 @@ def main():
             [flat(hh) for hh in holes if len(hh) >= 3],
             KIND.get(tags.get("building", "yes"), 0),
         ])
-        grid.add_poly(outer)
+        outlines.append(outer)
 
     for e in raw["elements"]:
         t = e.get("tags", {})
@@ -309,6 +359,12 @@ def main():
                 w = max(w if grp >= 3 else 0, lanes * 3.3)
             if not lanes:
                 lanes = max(1, round(w / 3.3)) if grp <= 2 else (1 if oneway else 2)
+            if GAME and grp in GAME_ROAD_W:
+                w = GAME_ROAD_W[grp] if not (hw.endswith("_link") or hw == "busway") else min(GAME_ROAD_W[grp], 18.0)
+                if grp <= 2:
+                    lanes = max(2, int(w / 3.4))
+                    if not oneway:
+                        lanes -= lanes % 2
             pts_all = [xy(p) for p in geom]
             if grp <= 4:
                 for i, p in enumerate(geom):
@@ -344,6 +400,11 @@ def main():
                 greens.append([t.get("name", ""), flat(pts), gk])
                 green_polys.append((gk, t.get("leisure"), pts))
 
+    if GAME:
+        buildings, outlines = carve_buildings(buildings, roads)
+    for o in outlines:
+        grid.add_poly(o)
+
     # ---------- 나무 ----------
     rnd = random.Random(42)
     trees = []
@@ -357,7 +418,7 @@ def main():
         t = e.get("tags", {})
         if e["type"] == "node" and t.get("natural") == "tree":
             x, y = xy(e)
-            if math.hypot(x, y) < RADIUS and not grid.in_building(x, y):
+            if math.hypot(x, y) < RADIUS and not grid.in_building(x, y) and not (GAME and grid.on_road(x, y, 0.5)):
                 trees.append([round(x, 1), round(y, 1), round(rnd.uniform(0.9, 1.3), 2)])
         elif e["type"] == "way" and t.get("natural") == "tree_row" and e.get("geometry"):
             pts = [xy(p) for p in e["geometry"]]
@@ -414,7 +475,7 @@ def main():
         "waters": waters, "rails": rails, "exits": exits, "stations": stations,
         "trees": trees, "crossings": crossings, "carPaths": car_paths,
     }
-    out = ROOT / "map_data.js"
+    out = ROOT / ("map_game.js" if GAME else "map_data.js")
     out.write_text("window.MAP_DATA=" + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";", encoding="utf-8")
     msg = (f"buildings={len(buildings)} (est_height={sum(b[1] for b in buildings)}) roads={len(roads)} greens={len(greens)} "
            f"trees={len(trees)} (osm={n_osm}, park={n_park}, street={len(trees) - n_osm - n_park}) "
