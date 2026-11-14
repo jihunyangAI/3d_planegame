@@ -145,12 +145,31 @@
   #count.show { opacity: 1; }
   #res-stats { color: var(--dim); font-size: 13px; }
   #ov-go { display: inline-block; padding: 11px 26px; border-radius: 24px; background: var(--cyan); color: #06222c; font-weight: 700; font-size: 15px; }
+  #mobile { position: fixed; inset: 0; display: none; place-items: center; z-index: 20; overflow: auto; user-select: text;
+    background: radial-gradient(ellipse at 50% 30%, #17283a, #0c1118 70%); }
+  #mobile.show { display: grid; }
+  #mobile .box { text-align: center; max-width: 420px; padding: 32px 24px; }
+  #mobile h1 { margin: 14px 0 12px; font-size: 30px; letter-spacing: -.03em; }
+  #mobile p { margin: 0 0 26px; color: var(--dim); font-size: 15px; line-height: 1.65; word-break: keep-all; }
+  #mobile p b { color: var(--ink); font-size: 18px; }
+  #mobile button { display: block; width: 100%; margin: 0 0 12px; padding: 14px 16px; border-radius: 10px; border: 0; font: inherit; font-size: 15px; font-weight: 700;
+    background: var(--cyan); color: #06222c; overflow-wrap: anywhere; }
+  #mobile button.sub { background: none; color: var(--dim); font-weight: 400; font-size: 13px; text-decoration: underline; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0c1118; color: var(--dim); font-size: 14px; z-index: 10; }
   @media (max-width: 700px) { #keys, #stage { display: none; } #minimap { width: 130px; height: 130px; } }
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div id="mobile">
+  <div class="box">
+    <img src="favicon.svg" alt="" width="64" height="64">
+    <h1>홍대 드론 로얄</h1>
+    <p><b>PC에서 플레이해 주세요.</b><br>키보드와 마우스로 조종하는 게임이라 휴대폰과 태블릿에서는 조작할 수 없습니다.</p>
+    <button id="m-copy" type="button">주소 복사해서 PC로 보내기</button>
+    <button id="m-go" type="button" class="sub">키보드·마우스를 연결했어요, 그래도 열기</button>
+  </div>
+</div>
 <div id="loading">홍대 상공을 준비하는 중…</div>
 
 <div id="stage" class="hud"><b>홍대 드론 로얄</b>배틀로얄 · <span id="h-diff">쉬움</span><em>격추<b id="h-kills">0</b></em><div id="feed"></div></div>
@@ -206,13 +225,36 @@
   </div>
 </div>
 
-<script src="map_game.js"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
 } }
 </script>
-<script type="module" src="js/main.js"></script>
+<script>
+  // 터치만 되는 기기(휴대폰·태블릿)에서는 조작할 수 없으므로 게임을 내려받지 않고 안내를 띄운다.
+  // 키보드·마우스가 달린 기기는 그대로 시작한다.
+  function boot() {
+    const s = document.createElement('script');
+    s.src = 'map_game.js';
+    s.onload = () => import('./js/main.js');
+    document.head.appendChild(s);
+  }
+  const touchOnly = matchMedia('(hover: none) and (pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
+  if (touchOnly) {
+    const m = document.getElementById('mobile');
+    m.classList.add('show');
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('m-copy').addEventListener('click', async e => {
+      try { await navigator.clipboard.writeText(location.href); e.target.textContent = '주소를 복사했습니다'; }
+      catch (err) { e.target.textContent = location.href; }
+    });
+    document.getElementById('m-go').addEventListener('click', () => {
+      m.classList.remove('show');
+      document.getElementById('loading').style.display = '';
+      boot();
+    });
+  } else boot();
+</script>
 </body>
 </html>
