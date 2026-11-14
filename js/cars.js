@@ -40,9 +40,9 @@ class Kit {
   // 차축: x 위치, 바퀴 중심의 z(반폭), 반지름, 폭. dual: 뒷바퀴 복륜
   axle(x, z, r, w = 0.26, dual = false) {
     for (const s of [-1, 1]) {
-      const t = new THREE.CylinderGeometry(r, r, dual ? w * 2 : w, 12); t.rotateX(Math.PI / 2); t.translate(x, r, s * (dual ? z - w * 0.5 : z));
+      const t = new THREE.CylinderGeometry(r, r, dual ? w * 2 : w, 8); t.rotateX(Math.PI / 2); t.translate(x, r, s * (dual ? z - w * 0.5 : z));
       this._push(t, TIRE, 0);
-      const h = new THREE.CylinderGeometry(r * 0.55, r * 0.55, 0.04, 10); h.rotateX(Math.PI / 2); h.translate(x, r, s * (z + w / 2 + 0.005));
+      const h = new THREE.CylinderGeometry(r * 0.55, r * 0.55, 0.04, 6); h.rotateX(Math.PI / 2); h.translate(x, r, s * (z + w / 2 + 0.005));
       this._push(h, HUB, 0);
     }
     return this;
@@ -201,19 +201,57 @@ export function buildTraffic(scene, D, lampMat) {
     for (let i = 0; i < f.length / 2 - 1; i++) cum.push(cum[i] + Math.hypot(f[2 * i + 2] - f[2 * i], f[2 * i + 3] - f[2 * i + 1]));
     return { w, oneway, lanes, f, cum, len: cum[cum.length - 1] };
   });
+  // 이면도로(골목)에도 차가 다닌다: 끝이 맞닿은 도로 조각을 되도록 곧게 이어 긴 경로로 만든다
+  {
+    const segs = D.roads.filter(rd => rd[0] === 3 && rd[3].length >= 4).map(rd => rd[3]);
+    const key = (x, y) => Math.round(x * 10) + ',' + Math.round(y * 10);
+    const ends = new Map();
+    segs.forEach((f, i) => {
+      for (const e of [0, 1]) {
+        const k = e ? key(f[f.length - 2], f[f.length - 1]) : key(f[0], f[1]);
+        if (!ends.has(k)) ends.set(k, []);
+        ends.get(k).push({ i, e });
+      }
+    });
+    const used = new Uint8Array(segs.length);
+    const reversed = f => { const o = []; for (let i = f.length - 2; i >= 0; i -= 2) o.push(f[i], f[i + 1]); return o; };
+    const extend = pts => {                         // pts 의 끝에서 이어지는 조각을 계속 붙인다
+      for (;;) {
+        const n = pts.length, dx = pts[n - 2] - pts[n - 4], dy = pts[n - 1] - pts[n - 3], dl = Math.hypot(dx, dy) || 1;
+        let best = null, bd = 0.35;                 // 너무 꺾이는 길로는 잇지 않는다
+        for (const c of ends.get(key(pts[n - 2], pts[n - 1])) || []) {
+          if (used[c.i]) continue;
+          const f = c.e ? reversed(segs[c.i]) : segs[c.i];
+          const ex = f[2] - f[0], ey = f[3] - f[1], el = Math.hypot(ex, ey) || 1, dot = (dx * ex + dy * ey) / (dl * el);
+          if (dot > bd) { bd = dot; best = { i: c.i, f }; }
+        }
+        if (!best) return pts;
+        used[best.i] = 1;
+        for (let k = 2; k < best.f.length; k++) pts.push(best.f[k]);
+      }
+    };
+    segs.forEach((f0, i) => {
+      if (used[i]) return;
+      used[i] = 1;
+      const f = reversed(extend(reversed(extend([...f0]))));
+      const cum = [0];
+      for (let k = 0; k < f.length / 2 - 1; k++) cum.push(cum[k] + Math.hypot(f[2 * k + 2] - f[2 * k], f[2 * k + 3] - f[2 * k + 1]));
+      if (cum[cum.length - 1] >= 50) paths.push({ w: 12, oneway: 0, lanes: 2, f, cum, len: cum[cum.length - 1], alley: true });
+    });
+  }
   const cars = [], counts = {};
   for (const p of paths) {
     const lw = p.w / p.lanes, lanesList = [];
     if (p.oneway) for (let k = 0; k < p.lanes; k++) lanesList.push({ off: -p.w / 2 + (k + 0.5) * lw, dir: 1 });
     else { const half = Math.max(1, Math.floor(p.lanes / 2)), hw = p.w / 2 / half; for (let k = 0; k < half; k++) { lanesList.push({ off: (k + 0.5) * hw, dir: 1 }); lanesList.push({ off: (k + 0.5) * hw, dir: -1 }); } }
     for (const ln of lanesList) {
-      const speed = 7 + r() * 6;                     // 같은 차로는 같은 속도 → 추돌 없음
-      let s = r() * 40;
+      const speed = p.alley ? 3.5 + r() * 3.5 : 7 + r() * 6;     // 같은 차로는 같은 속도 → 추돌 없음. 골목은 천천히.
+      let s = r() * (p.alley ? 90 : 40);
       while (s < p.len) {
         const type = pick(p.w >= 24), len = TYPES[type].len;
         cars.push({ p, s, speed, off: ln.off, dir: ln.dir, type, slot: counts[type] = (counts[type] || 0), half: len / 2 });
         counts[type]++;
-        s += len + 22 + r() * 70;
+        s += len + (p.alley ? 45 + r() * 110 : 22 + r() * 70);
       }
     }
   }
@@ -243,7 +281,11 @@ export function buildTraffic(scene, D, lampMat) {
   scene.add(lights);
 
   const dummy = new THREE.Object3D();
-  function update(dt) {
+  // listener: 소리를 듣는 위치 (three.js 좌표). 돌려주는 값: level 주변 교통량 0~1, near 가장 가까운 차까지의 거리(m)
+  const heard = { level: 0, near: Infinity };
+  function update(dt, listener) {
+    let sum = 0, near2 = Infinity;
+    const lx = listener ? listener.x : 0, ly = listener ? listener.y : 0, lz = listener ? listener.z : 0;
     const lp = lg.attributes.position;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i], p = car.p;
@@ -255,6 +297,12 @@ export function buildTraffic(scene, D, lampMat) {
       const ux = dx / L, uy = dy / L, t = car.s - p.cum[lo], o = car.off * car.dir;
       const x = x0 + ux * t + uy * o, y = y0 + uy * t - ux * o;
       dummy.position.set(x, 0.3, -y);
+      // 경로의 끝에서 갑자기 사라지거나 나타나지 않게 양 끝 8m 에서 크기를 줄인다
+      dummy.scale.setScalar(Math.min(1, Math.max(0.02, Math.min(car.s, p.len - car.s) / 8)));
+      if (listener) {
+        const d2 = (x - lx) * (x - lx) + ly * ly + (-y - lz) * (-y - lz);
+        if (d2 < 14400) { sum += 1 / (1 + d2 / 500); if (d2 < near2) near2 = d2; }
+      }
       dummy.rotation.y = Math.atan2(uy * car.dir, ux * car.dir);
       dummy.updateMatrix();
       meshes[car.type].setMatrixAt(car.slot, dummy.matrix);
@@ -262,6 +310,8 @@ export function buildTraffic(scene, D, lampMat) {
     }
     for (const n in meshes) meshes[n].instanceMatrix.needsUpdate = true;
     lp.needsUpdate = true;
+    heard.level = Math.min(1, sum / 3.5); heard.near = Math.sqrt(near2);
+    return heard;
   }
   update(0);
   return { update, count: cars.length, setNight(n) { lights.material.opacity = n; lights.visible = n > 0.02; } };

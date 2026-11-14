@@ -43,7 +43,6 @@ export function createDroneModel(accent = 0x35d6ff, enemy = false) {
   tilt.add(pilot.root);
   const muzzle = pilot.muzzle;
 
-  root.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
   return { root, tilt, rotors, muzzle, pilot };
 }
 

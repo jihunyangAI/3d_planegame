@@ -1,5 +1,6 @@
 // 게임 조정값. 난이도·조작감은 여기 숫자만 바꾸면 된다.
 export const CFG = {
+  difficulty: 'easy',         // applyDifficulty() 로 바꾼다
   timeOfDay: 15,              // 시각 (5~23)
   drone: {
     radius: 1.6,              // 충돌 반지름 (m)
@@ -85,3 +86,20 @@ export const CFG = {
   mouse: { sens: 0.0022, pitchMax: 1.2 },
   spawnAlt: 20,
 };
+
+// 난이도: 쉬움이 기본값(위의 bot 설정)이고, 보통·어려움은 아래 값으로 덮어쓴다.
+export const DIFFS = {
+  easy: { label: '쉬움', bot: {}, assistDeg: 2.2, zoneDps: 1 },
+  normal: { label: '보통', assistDeg: 1.4, zoneDps: 1.5,
+    bot: { hp: 80, shield: 40, speedScale: 0.9, sight: 230, reaction: 0.6, maxOnPlayer: 3, aimTime: 0.5, burst: 5, cooldown: [1.0, 2.0], damage: 10, spread: 1.5, lead: 0.8 } },
+  hard: { label: '어려움', assistDeg: 0.7, zoneDps: 2,
+    bot: { hp: 100, shield: 50, speedScale: 1.0, sight: 270, reaction: 0.3, maxOnPlayer: 7, aimTime: 0.35, burst: 6, burstRate: 5, cooldown: [0.7, 1.5], damage: 12, spread: 1.1, lead: 1.0 } },
+};
+const BASE_BOT = { ...CFG.bot };
+export function applyDifficulty(name) {
+  if (!DIFFS[name]) name = 'easy';
+  CFG.difficulty = name;
+  Object.assign(CFG.bot, BASE_BOT, DIFFS[name].bot);
+  CFG.laser.assistDeg = DIFFS[name].assistDeg;      // 조준 보정도 난이도에 따라 줄어든다
+  CFG.zone.dpsScale = DIFFS[name].zoneDps;          // 자기장 피해 배율
+}

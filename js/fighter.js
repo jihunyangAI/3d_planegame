@@ -1,4 +1,5 @@
 // 전투원: 드론 + 체력·실드·레이저 포. 플레이어와 적이 함께 쓴다.
+import * as THREE from 'three';
 import { Drone } from './drone.js';
 import { Gun } from './weapons.js';
 import { CFG } from './config.js';
@@ -19,6 +20,13 @@ export class Fighter {
     this.twinT = 0;              // 쌍발 레이저 남은 시간
     this.boostT = 0;             // 부스트 강화 남은 시간
     this.place = 0;              // 격추됐을 때의 순위
+    this.wrecking = false;       // 격추된 뒤 불붙은 채 떨어지는 중
+    this.wreckT = 0;
+    // 실드가 레이저를 막을 때 번쩍이는 막
+    this.bubble = new THREE.Mesh(new THREE.SphereGeometry(2.3, 18, 12),
+      new THREE.MeshBasicMaterial({ color: 0x6fb8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.bubble.position.y = 0.7; this.bubble.visible = false; this.bubbleT = 0;
+    this.drone.model.root.add(this.bubble);
     this.drone.model.root.visible = false;
   }
 
@@ -30,6 +38,8 @@ export class Fighter {
     this.hp = this.maxHp; this.shield = this.maxShield; this.alive = true;
     this.sinceHit = 99; this.lastAttacker = null; this.protT = protect;
     this.twinT = this.boostT = 0; this.place = 0;
+    this.wrecking = false; this.bubbleT = 0;
+    this.drone.model.tilt.rotation.set(0, 0, 0);
     this.drone.model.root.visible = true;
   }
 
@@ -38,6 +48,9 @@ export class Fighter {
     this.protT = Math.max(0, this.protT - dt);
     this.twinT = Math.max(0, this.twinT - dt); this.boostT = Math.max(0, this.boostT - dt);
     this.drone.boostFree = this.boostT > 0;
+    this.bubbleT = Math.max(0, this.bubbleT - dt);
+    this.bubble.visible = this.alive && this.bubbleT > 0;
+    this.bubble.material.opacity = this.bubbleT / 0.25 * 0.4;
     if (this.alive && this.sinceHit > CFG.player.shieldDelay) this.shield = Math.min(this.maxShield, this.shield + CFG.player.shieldRegen * dt);
   }
 
@@ -47,10 +60,12 @@ export class Fighter {
     if (!bypass) { this.sinceHit = 0; this.lastAttacker = from; }
     const s = bypass ? 0 : Math.min(this.shield, amount);
     this.shield -= s; this.hp -= amount - s;
+    if (s > 0) this.bubbleT = 0.25;
     if (this.hp > 0) return s === amount ? 'shield' : 'hit';
     this.hp = 0; this.alive = false; this.deaths++;
     if (from) from.kills++;
-    this.drone.model.root.visible = false;
+    this.wrecking = true; this.wreckT = 0;       // 기체는 불붙은 채 떨어진다 (main.js 의 updateWrecks)
+    this.vel.y = Math.max(this.vel.y, 3);
     return 'kill';
   }
 }

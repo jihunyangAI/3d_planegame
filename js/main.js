@@ -1,17 +1,18 @@
-// 홍대 드론 로얄 — 4단계: 8명 중 마지막 1명이 이기는 한 판 (자기장 · 아이템)
+// 홍대 드론 로얄: 8명 중 마지막 1명이 이기는 한 판 (자기장 · 아이템 · 난이도)
 import * as THREE from 'three';
 import { buildCity } from './city.js';
 import { World } from './world.js';
 import { buildStreet } from './street.js';
+import { buildPeople } from './people.js';
 import { Nav } from './nav.js';
 import { Fighter } from './fighter.js';
 import { Bot } from './bots.js';
 import { Zone } from './zone.js';
 import { Items, ITEM } from './items.js';
-import { CFG } from './config.js';
+import { CFG, DIFFS, applyDifficulty } from './config.js';
 import { Bolts } from './weapons.js';
 import { Particles } from './fx.js';
-import { sfx, unlock as unlockAudio, toggleMute } from './audio.js';
+import { sfx, unlock as unlockAudio, toggleMute, setEngine, setTraffic } from './audio.js';
 
 const D = window.MAP_DATA;
 const $ = id => document.getElementById(id);
@@ -22,7 +23,8 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CFG.camera.fov, innerWidth / innerHeight, 0.3, 40000);
 camera.rotation.order = 'YXZ';
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+let pixelRatio = Math.min(devicePixelRatio, 1.5);       // 느리면 자동으로 낮춘다 (tick 참고)
+renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -33,6 +35,7 @@ const canvas = renderer.domElement;
 const city = buildCity(scene, renderer, D);
 city.setTime(CFG.timeOfDay);
 const street = buildStreet(scene, D, city.lampPos);
+const people = buildPeople(scene, D);
 const world = new World(D);
 const nav = new Nav(D, world);
 const zone = new Zone(scene, D.radius);
@@ -61,7 +64,7 @@ const beams = bots.map(() => {
 
 // ---------- 경기 ----------
 const aim = { yaw: 0, pitch: -0.12 };
-let over = false, spectate = null, zoneTick = 0;
+let over = false, spectate = null, zoneTick = 0, startT = 0, lastCount = 0, prevShrink = false, shake = 0, heartT = 0;
 // 가장 멀리 트인 방향(길을 따라)
 function openYaw(x, y, z) {
   let best = -1, yaw = 0;
@@ -72,7 +75,8 @@ function openYaw(x, y, z) {
   return yaw;
 }
 function startMatch() {
-  over = false; spectate = null; zoneTick = 0;
+  over = false; spectate = null; zoneTick = 0; shake = 0;
+  startT = 3; lastCount = 4; prevShrink = false;      // 3초 초읽기 뒤에 시작
   zone.reset(nav); items.reset();
   // 참가자를 길 위에 서로 떨어뜨려 놓는다
   const taken = [];
@@ -88,10 +92,11 @@ function startMatch() {
     f.kills = f.deaths = 0;
     if (f === me) {
       aim.yaw = openYaw(x, CFG.spawnAlt, z); aim.pitch = -0.12;
-      me.spawn(x, CFG.spawnAlt, z, aim.yaw, CFG.player.spawnProtect);
+      me.spawn(x, CFG.spawnAlt, z, aim.yaw, 3 + CFG.player.spawnProtect);
     } else {
       const b = bots.find(o => o.f === f);
       b.reset();
+      f.maxHp = CFG.bot.hp; f.maxShield = CFG.bot.shield;      // 난이도에 따라 달라진다
       f.spawn(x, b.alt, z, Math.random() * 6.283, 0);
     }
   }
@@ -99,6 +104,7 @@ function startMatch() {
   for (const b of bolts.list) b.alive = false;
   hud.dead.classList.remove('show'); hud.result.classList.remove('show');
   while (feed.length) feed.pop().el.remove();
+  hud.diff.textContent = DIFFS[CFG.difficulty].label;
 }
 const aliveCount = () => fighters.reduce((n, f) => n + (f.alive ? 1 : 0), 0);
 
@@ -109,6 +115,7 @@ function onDeath(victim, killer) {
   fx.emit(victim.pos.x, victim.pos.y, victim.pos.z, 0, 0, 0, COL.hot, 16, 0.16);
   sfx.explode(loud(victim.pos));
   addFeed(killer, victim);
+  shake += Math.max(0, 1 - victim.pos.distanceTo(view().pos) / 70) * 0.6;
   const left = aliveCount();
   victim.place = left + 1;
   if (victim === me) {
@@ -127,6 +134,38 @@ function endMatch(winner) {
   hud.resTitle.textContent = won ? '우승!' : me.place + '위';
   hud.resSub.textContent = `격추 ${me.kills}` + (won ? ' · 마지막까지 살아남았습니다' : winner ? ` · 우승: ${winner.name}` : ' · 우승자 없음');
   if (won) sfx.win(); else sfx.lose();
+  // 난이도별 전적 (이 브라우저에만 저장)
+  let line = '';
+  try {
+    const all = JSON.parse(localStorage.getItem('hdr-stats') || '{}'), st = all[CFG.difficulty] || { plays: 0, wins: 0 };
+    st.plays++; if (won) st.wins++;
+    all[CFG.difficulty] = st;
+    localStorage.setItem('hdr-stats', JSON.stringify(all));
+    line = `${DIFFS[CFG.difficulty].label} 난이도 · ${st.plays}판 중 우승 ${st.wins}회`;
+  } catch (e) {}
+  hud.resStats.textContent = line;
+}
+
+// 격추된 기체: 불붙은 채 돌면서 떨어지다가 건물이나 땅에 부딪혀 한 번 더 터진다
+const _wv = new THREE.Vector3();
+function updateWrecks() {
+  for (const f of fighters) {
+    if (!f.wrecking) continue;
+    f.wreckT += dt;
+    f.vel.y -= 16 * dt; f.vel.x *= 1 - 0.6 * dt; f.vel.z *= 1 - 0.6 * dt;
+    f.pos.addScaledVector(f.vel, dt);
+    const m = f.drone.model;
+    m.tilt.rotation.x += 2.6 * dt; m.tilt.rotation.z += 1.9 * dt;
+    fx.emit(f.pos.x, f.pos.y + 0.3, f.pos.z, (Math.random() - 0.5) * 3, 2 + Math.random() * 3, (Math.random() - 0.5) * 3, Math.random() < 0.5 ? COL.fire : COL.smoke, 1.6 + Math.random(), 0.6);
+    _wv.copy(f.vel);
+    if (world.collideSphere(f.pos, 1.2, _wv, 1.0, 999) || f.pos.y <= 1.05 || f.wreckT > 8) {
+      fx.burst(f.pos, 26, COL.fire, 18, 1.5, 0.8, 8);
+      fx.emit(f.pos.x, f.pos.y, f.pos.z, 0, 0, 0, COL.hot, 11, 0.14);
+      sfx.explode(loud(f.pos) * 0.6);
+      shake += Math.max(0, 1 - f.pos.distanceTo(view().pos) / 60) * 0.4;
+      f.wrecking = false; m.root.visible = false; m.tilt.rotation.set(0, 0, 0);
+    }
+  }
 }
 
 // ---------- 입력 ----------
@@ -138,6 +177,7 @@ addEventListener('keydown', e => {
   keys.add(e.code);
   if (e.code === 'KeyR' && playing) { startMatch(); toast('새 경기'); }
   if (e.code === 'KeyM') toast(toggleMute() ? '소리 끔' : '소리 켬');
+  if (!playing && DIFF_KEYS[e.code]) setDifficulty(DIFF_KEYS[e.code]);
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); zoom = trigger = false; });
@@ -152,6 +192,16 @@ addEventListener('mousemove', e => {
 });
 const overlay = $('overlay');
 overlay.addEventListener('click', () => canvas.requestPointerLock());
+// 난이도: 시작·일시 정지 화면의 버튼 또는 1·2·3 키. 바꾸면 새 경기가 준비된다.
+const DIFF_KEYS = { Digit1: 'easy', Digit2: 'normal', Digit3: 'hard' };
+const diffButtons = [...document.querySelectorAll('#diffs button')];
+function setDifficulty(name, restart = true) {
+  applyDifficulty(name);
+  try { localStorage.setItem('hdr-diff', CFG.difficulty); } catch (e) {}
+  diffButtons.forEach(b => b.classList.toggle('on', b.dataset.diff === CFG.difficulty));
+  if (restart) { startMatch(); $('ov-title').textContent = '홍대 드론 로얄'; $('ov-go').textContent = '클릭하면 시작합니다'; }
+}
+diffButtons.forEach(b => b.addEventListener('click', e => { e.stopPropagation(); setDifficulty(b.dataset.diff); }));
 canvas.addEventListener('click', () => { if (document.pointerLockElement !== canvas) canvas.requestPointerLock(); });
 document.addEventListener('pointerlockchange', () => {
   playing = document.pointerLockElement === canvas;
@@ -242,8 +292,10 @@ const hud = { speed: $('h-speed'), alt: $('h-alt'), boost: $('h-boost'), warn: $
   heat: $('h-heat'), heatLabel: $('h-heat-label'), kills: $('h-kills'), hitmark: $('hitmark'), toast: $('toast'), bars: $('tbars'),
   hp: $('h-hp'), hpNum: $('h-hp-num'), shield: $('h-shield'), shieldNum: $('h-shield-num'), vignette: $('vignette'), feed: $('feed'),
   dead: $('dead'), deadBy: $('dead-by'), deadPlace: $('dead-place'), threats: $('threats'),
+  diff: $('h-diff'), count: $('count'), resStats: $('res-stats'),
   alive: $('h-alive'), zone: $('h-zone'), buffs: $('buffs'), result: $('result'), resTitle: $('res-title'), resSub: $('res-sub') };
-let toastTimer = 0, hitTimer = 0, hurt = 0;
+let toastTimer = 0, hitTimer = 0, hurt = 0, countTimer = 0;
+function showCount(text) { hud.count.textContent = text; hud.count.classList.add('show'); countTimer = 0.85; }
 function toast(text) { hud.toast.textContent = text; hud.toast.classList.add('show'); toastTimer = 1.4; }
 function hitMark(kill) { hud.hitmark.className = 'hud show' + (kill ? ' kill' : ''); hitTimer = kill ? 0.35 : 0.12; }
 const feed = [];
@@ -320,6 +372,7 @@ function updateHud() {
   hud.vignette.style.opacity = Math.max(hurt, me.alive && me.hp < me.maxHp * 0.35 ? 0.3 : 0).toFixed(2);
   if (toastTimer > 0 && (toastTimer -= dt) <= 0) hud.toast.classList.remove('show');
   if (hitTimer > 0 && (hitTimer -= dt) <= 0) hud.hitmark.className = 'hud';
+  if (countTimer > 0 && (countTimer -= dt) <= 0) hud.count.classList.remove('show');
   for (let i = feed.length - 1; i >= 0; i--) if ((feed[i].t -= dt) <= 0) { feed[i].el.remove(); feed.splice(i, 1); }
   const aimed = updateEnemyMarks();
 
@@ -338,7 +391,7 @@ function updateHud() {
 // ---------- 사격 ----------
 const _aimP = new THREE.Vector3(), _muz = new THREE.Vector3(), _dir = new THREE.Vector3(), _sp = new THREE.Vector3(), _side = new THREE.Vector3();
 const COL = { laser: new THREE.Color(CFG.laser.color), spark: new THREE.Color(0xbfefff), fire: new THREE.Color(0xff9a3c), hot: new THREE.Color(0xfff1c9),
-  red: new THREE.Color(ENEMY), shield: new THREE.Color(0x6fb8ff) };
+  red: new THREE.Color(ENEMY), shield: new THREE.Color(0x6fb8ff), smoke: new THREE.Color(0x6b4630) };
 const loud = p => clamp(1 - p.distanceTo(view().pos) / 420, 0.1, 1);
 
 // 조준점: 화면 가운데 광선이 닿는 곳. 조준 보정 각도 안에 적이 있으면 그 적(이동 예측 포함).
@@ -403,7 +456,7 @@ function onBoltHit(b, victim, p) {
     return;
   }
   fx.burst(_sp, 9, res === 'shield' ? COL.shield : COL.fire, 13, 0.55, 0.28, 6);
-  if (victim === me) { hurt = Math.min(1, hurt + (res === 'shield' ? 0.35 : 0.6)); sfx.hurt(res === 'shield'); }
+  if (victim === me) { hurt = Math.min(1, hurt + (res === 'shield' ? 0.35 : 0.6)); shake += res === 'shield' ? 0.12 : 0.25; sfx.hurt(res === 'shield'); }
   if (res === 'kill') onDeath(victim, b.owner);
   else if (b.owner === me) { sfx.hit(); hitMark(false); }
 }
@@ -461,7 +514,7 @@ const ctx = {
 // ---------- 카메라 (3인칭 추적) ----------
 // 지금 화면이 따라가는 드론: 살아 있으면 나, 격추된 뒤에는 관전 대상
 function view() {
-  if (me.alive) return me;
+  if (me.alive || me.wrecking) return me;        // 내 기체가 떨어지는 동안은 그것을 본다
   if (!spectate || !spectate.alive) spectate = fighters.find(f => f.alive) || null;
   return spectate || me;
 }
@@ -486,10 +539,16 @@ function updateCamera(dt) {
   camDist = target < camDist ? target : Math.min(target, camDist + 12 * dt);
   camera.position.copy(pivot).addScaledVector(want, camDist);
   camera.rotation.set(aim.pitch, aim.yaw, 0);
+  if (shake > 0.002) {                           // 피격·폭발의 흔들림
+    const k = Math.min(shake, 1.2);
+    camera.position.x += (Math.random() - 0.5) * k * 0.5; camera.position.y += (Math.random() - 0.5) * k * 0.5; camera.position.z += (Math.random() - 0.5) * k * 0.5;
+    camera.rotation.z = (Math.random() - 0.5) * k * 0.03;
+    shake *= Math.exp(-7 * dt);
+  }
   const fov = (zoom && me.alive ? cc.zoomFov : cc.fov) + (me.alive && me.drone.boosting ? cc.boostFov : 0);
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-10 * dt)); camera.updateProjectionMatrix(); }
   // 카메라가 바짝 붙으면 드론이 화면을 가리므로 숨긴다. 출격 보호 중에는 깜빡인다.
-  me.drone.model.root.visible = me.alive && camDist > 2.2 && !(me.protT > 0 && Math.floor(me.protT * 10) % 2);
+  me.drone.model.root.visible = me.wrecking || (me.alive && camDist > 2.2 && !(me.protT > 0 && startT <= 0 && Math.floor(me.protT * 10) % 2));
 }
 
 addEventListener('resize', () => {
@@ -499,14 +558,21 @@ addEventListener('resize', () => {
 
 // ---------- 메인 루프 ----------
 const cmd = { fwd: 0, right: 0, up: 0, boost: false, yaw: 0 };
-let last = performance.now(), frame = 0, turn = 0, dt = 0;
+let last = performance.now(), frame = 0, turn = 0, dt = 0, fpsAvg = 60, perfT = 0, passT = 0, hornT = 5;
 function simulate() {
+  // 시작 초읽기: 3, 2, 1 동안은 모두 제자리에 있다
+  const counting = startT > 0;
+  if (counting) {
+    startT -= dt;
+    const n = Math.max(0, Math.ceil(startT));
+    if (n !== lastCount) { lastCount = n; if (n > 0) { showCount(n); sfx.count(); } else { showCount('출격!'); sfx.go(); } }
+  }
   if (me.alive) {
     // 좌우 키는 게걸음이 아니라 기수를 돌린다 (시점도 함께 돈다)
     const steer = axis(['ArrowLeft', 'KeyA'], ['ArrowRight', 'KeyD']);
     turn += (steer * CFG.drone.turnRate * (zoom ? 0.45 : 1) - turn) * (1 - Math.exp(-CFG.drone.turnAccel * dt));
     aim.yaw += turn * dt;
-    cmd.fwd = axis(['KeyW'], ['KeyS']); cmd.up = axis(['ArrowUp'], ['ArrowDown']);
+    cmd.fwd = counting ? 0 : axis(['KeyW'], ['KeyS']); cmd.up = counting ? 0 : axis(['ArrowUp'], ['ArrowDown']);
     cmd.boost = keys.has('ShiftLeft') || keys.has('ShiftRight'); cmd.yaw = aim.yaw;
     me.drone.aimPitch = aim.pitch;
     me.drone.update(dt, cmd, world);
@@ -514,7 +580,10 @@ function simulate() {
 
   bots.forEach((b, i) => {
     const f = b.f, beam = beams[i];
-    if (f.alive && !over) b.update(dt, ctx);
+    if (f.alive && !over && !counting) b.update(dt, ctx);
+    const locking = f.alive && b.target === me && b.aiming;      // 나를 조준하기 시작하면 경고음
+    if (locking && !b.warned) sfx.lock();
+    b.warned = locking;
     beam.visible = f.alive && !over && b.aiming && !!b.target;
     if (beam.visible) {
       const t = b.target.pos;
@@ -525,10 +594,22 @@ function simulate() {
       if (frame % 3 === 0) fx.emit(f.pos.x, f.pos.y - 0.3, f.pos.z, 0, 0, 0, COL.red, 3.2, 0.12);
     }
   });
-  for (const f of fighters) f.tick(dt);
+  for (const f of fighters) {
+    f.tick(dt);
+    if (f.alive && f.drone.boosting && frame % 2 === 0) {            // 부스트 꼬리
+      const sy = Math.sin(f.drone.yaw), cy = Math.cos(f.drone.yaw);
+      fx.emit(f.pos.x + sy * 1.4, f.pos.y - 0.15, f.pos.z + cy * 1.4, sy * 5, 0, cy * 5, f.isPlayer ? COL.laser : COL.red, 1.3, 0.3);
+    }
+    if (f.alive && f.hp < f.maxHp * 0.35 && frame % 5 === 0) fx.emit(f.pos.x, f.pos.y, f.pos.z, (Math.random() - 0.5) * 2, 2.5, (Math.random() - 0.5) * 2, COL.fire, 0.8, 0.45, -2);   // 손상된 기체의 불티
+  }
+  updateWrecks();
+  if (me.alive && me.hp < me.maxHp * 0.35 && (heartT -= dt) <= 0) { heartT = 0.85; sfx.heart(); }
+  setEngine(me.alive ? me.drone.speed / CFG.drone.boostSpeed : 0, me.alive && me.drone.boosting, me.alive);
 
-  if (!over) {
+  if (!over && !counting) {
     zone.update(dt, nav);
+    if (zone.shrinking && !prevShrink) { toast('자기장이 줄어듭니다'); sfx.alarm(); }
+    prevShrink = zone.shrinking;
     const dmg = zone.dps * dt;                     // 자기장 밖이면 실드와 상관없이 체력이 깎인다
     for (const f of fighters) if (f.alive && zone.outside(f.pos) > 0 && f.damage(dmg, null, true) === 'kill') onDeath(f, null);
     if (me.alive && zone.outside(me.pos) > 0) {
@@ -538,19 +619,31 @@ function simulate() {
     items.update(dt, fighters, onPickup);
   }
 
-  city.updateCars(dt);
+  // 차 소리: 주변 교통량만큼 웅웅거리고, 가까이 스치면 지나가는 소리, 가끔 경적
+  const heard = city.updateCars(dt, view().pos);
+  setTraffic(heard.level);
+  passT -= dt; hornT -= dt;
+  if (heard.near < 16 && passT <= 0) { passT = 1.3 + Math.random() * 1.2; sfx.pass(clamp(1 - heard.near / 16, 0.25, 1)); }
+  if (hornT <= 0) { hornT = 4 + Math.random() * 9; if (heard.near < 110) sfx.horn(clamp(1 - heard.near / 110, 0.1, 1)); }
   street.update(dt);
+  people.update(dt);
   updateCamera(dt);
-  if (me.gun.update(dt, me.alive && !over && (trigger || keys.has('Space')))) shoot();
+  if (me.gun.update(dt, me.alive && !over && !counting && (trigger || keys.has('Space')))) shoot();
   if (me.gun.justOverheated) { me.gun.justOverheated = false; sfx.overheat(); }
   bolts.update(dt, world, fighters, onBoltHit);
   fx.update(dt, camera, innerHeight);
 }
 function tick(now) {
   requestAnimationFrame(tick);
-  dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const raw = (now - last) / 1000;
+  dt = Math.min(0.05, raw); last = now;
   if (playing || debugPlay) simulate();            // 시작 전·일시 정지 중에는 세상이 멈춘다
-  else { dt = 0; updateCamera(0); }
+  else { dt = 0; updateCamera(0); setEngine(0, false, false); setTraffic(0); }
+  // 계속 느리면 해상도를 한 단계씩 낮춘다
+  if (raw > 0 && raw < 0.5) {
+    fpsAvg += (1 / raw - fpsAvg) * 0.05;
+    if ((perfT += raw) > 3) { perfT = 0; if (fpsAvg < 42 && pixelRatio > 0.75) { pixelRatio = Math.max(0.75, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); } }
+  }
 
   const v = view(), ground = world.surfaceBelow(v.pos.x, v.pos.y, v.pos.z), h = v.pos.y - ground;
   blob.visible = v.alive;
@@ -563,10 +656,13 @@ function tick(now) {
   if (frame++ % 2 === 0) drawMinimap();
 }
 
+let savedDiff = 'easy';
+try { savedDiff = localStorage.getItem('hdr-diff') || 'easy'; } catch (e) {}
+setDifficulty(savedDiff, false);
 startMatch();
 $('loading').remove();
 requestAnimationFrame(tick);
 
 // 디버그·자동 시험용
 window.__game = { step: d => { dt = d; simulate(); }, me, bots, fighters, aim, world, nav, zone, items, keys, camera, scene, renderer, bolts, fx, CFG,
-  startMatch, isOver: () => over, setDebugPlay: v => { debugPlay = v; } };
+  startMatch, setDifficulty, isOver: () => over, setDebugPlay: v => { debugPlay = v; } };

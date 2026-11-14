@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { buildTraffic } from './cars.js';
+import { makeAsphaltTest } from './roadgrid.js';
 
 const { smoothstep, lerp, clamp } = THREE.MathUtils;
 
@@ -53,12 +54,83 @@ export function buildCity(scene, renderer, D) {
   let envRT = null;
 
   // ---------- 지면 ----------
+  const lotTrees = [];                               // 빈터 잔디밭에 심는 나무 (아래 나무 단계에서 함께 그린다)
   const outerMat = new THREE.MeshBasicMaterial({ color: 0xb7c6d6, fog: false });
   {
     const outer = new THREE.Mesh(new THREE.RingGeometry(R + 5, 30000, 96, 1), outerMat);
     outer.rotation.x = -Math.PI / 2; outer.position.y = -0.8;
     scene.add(outer);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(R, 128), new THREE.MeshLambertMaterial({ color: 0xbfbbb3 }));
+    // 지면 그림(1픽셀 ≈ 1m): 온통 잔디로 칠한 뒤 건물 둘레 6m 와 도로 주변을 포장 색으로 덮는다.
+    // 그러면 건물도 길도 없는 넓은 빈터만 잔디로 남는다.
+    const GS = 2048, gk = GS / (2 * R), rg = rng(77);
+    const gcv = document.createElement('canvas'); gcv.width = gcv.height = GS;
+    const gx = gcv.getContext('2d', { willReadFrequently: true });
+    gx.fillStyle = '#6a9552'; gx.fillRect(0, 0, GS, GS);
+    for (let i = 0; i < 9000; i++) {                 // 잔디의 얼룩
+      gx.fillStyle = `rgba(${40 + rg() * 70 | 0},${105 + rg() * 60 | 0},${35 + rg() * 40 | 0},0.22)`;
+      gx.beginPath(); gx.arc(rg() * GS, rg() * GS, 1 + rg() * 6, 0, 7); gx.fill();
+    }
+    gx.setTransform(gk, 0, 0, -gk, GS / 2, GS / 2);  // 지도 좌표 (x 동, y 북)
+    gx.lineJoin = gx.lineCap = 'round';
+    gx.fillStyle = gx.strokeStyle = '#b4b0a7';
+    gx.lineWidth = 12;
+    for (const b of D.buildings) {
+      const f = b[3];
+      gx.beginPath(); gx.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) gx.lineTo(f[i], f[i + 1]); gx.closePath();
+      gx.fill(); gx.stroke();
+    }
+    for (const [grp, w, , f] of D.roads) {
+      gx.lineWidth = grp <= 2 ? w + 10 : grp === 3 || grp === 5 ? w + 5 : w + 3;
+      gx.beginPath(); gx.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) gx.lineTo(f[i], f[i + 1]);
+      gx.stroke();
+    }
+    for (const gr of D.greens) {                     // 운동장·놀이터에는 나무를 심지 않도록 잔디에서 뺀다
+      if (gr[2] < 2) continue;
+      const f = gr[1];
+      gx.beginPath(); gx.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) gx.lineTo(f[i], f[i + 1]); gx.closePath(); gx.fill();
+    }
+    gx.setTransform(1, 0, 0, 1, 0, 0);
+    // 잔디로 남은 곳에 나무와 덤불을 심는다
+    const gpx = gx.getImageData(0, 0, GS, GS).data;
+    const grassAt = (x, y) => {
+      const px = Math.round((x + R) * gk), py = Math.round((R - y) * gk);
+      if (px < 0 || py < 0 || px >= GS || py >= GS) return false;
+      const o = (py * GS + px) * 4;
+      return gpx[o + 1] > gpx[o] + 18;               // 초록이 빨강보다 뚜렷이 강하면 잔디
+    };
+    const bushes = [];
+    for (let i = 0; i < 26000 && bushes.length < 900; i++) {
+      const a = rg() * 6.283, d = Math.sqrt(rg()) * (R - 12), x = Math.cos(a) * d, y = Math.sin(a) * d;
+      if (!grassAt(x, y) || !grassAt(x + 3, y) || !grassAt(x - 3, y) || !grassAt(x, y + 3) || !grassAt(x, y - 3)) continue;
+      if (lotTrees.length < 320 && rg() < 0.3) lotTrees.push([x, y, 0.8 + rg() * 0.6]);
+      else bushes.push([x, y, 0.6 + rg() * 0.8]);
+    }
+    {
+      const bm = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ flatShading: true }), bushes.length);
+      const d = new THREE.Object3D(), c = new THREE.Color(), BG = [0x4f7f3a, 0x5c8c42, 0x44733a, 0x6b9648, 0x3f6b36];
+      bushes.forEach(([x, y, sc], i) => {
+        d.position.set(x, sc * 0.45, -y); d.rotation.set(0, rg() * 6.28, 0); d.scale.set(sc, sc * 0.65, sc * (0.8 + rg() * 0.4)); d.updateMatrix();
+        bm.setMatrixAt(i, d.matrix); bm.setColorAt(i, c.set(BG[Math.floor(rg() * BG.length)]).multiplyScalar(0.85 + rg() * 0.3));
+      });
+      bm.castShadow = bm.receiveShadow = true;
+      scene.add(bm);
+    }
+    const gtex = new THREE.CanvasTexture(gcv);
+    gtex.colorSpace = THREE.SRGBColorSpace; gtex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    // 가까이서 밋밋하지 않게 5m 마다 되풀이되는 잔무늬를 곱한다
+    const dcv = document.createElement('canvas'); dcv.width = dcv.height = 128;
+    const dx2 = dcv.getContext('2d'), did = dx2.createImageData(128, 128);
+    for (let i = 0; i < did.data.length; i += 4) { const v = 90 + rg() * 165 | 0; did.data[i] = did.data[i + 1] = did.data[i + 2] = v; did.data[i + 3] = 255; }
+    dx2.putImageData(did, 0, 0);
+    const dtex = new THREE.CanvasTexture(dcv); dtex.wrapS = dtex.wrapT = THREE.RepeatWrapping;
+    const gmat = new THREE.MeshLambertMaterial({ map: gtex });
+    gmat.onBeforeCompile = sh => {
+      sh.uniforms.uDetail = { value: dtex };
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', 'uniform sampler2D uDetail;\n#include <common>')
+        .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= 0.80 + 0.40 * texture2D(uDetail, vMapUv * 400.0).r;');
+    };
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(R, 128), gmat);
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
     scene.add(ground);
     const ring = new THREE.Mesh(new THREE.RingGeometry(R, R + 5, 160), new THREE.MeshBasicMaterial({ color: 0xe5484d }));
@@ -83,7 +155,7 @@ export function buildCity(scene, renderer, D) {
   }
   flatLayer(D.greens.filter(g => g[2] === 0).map(g => g[1]), 0x7fa866, 0.05);
   flatLayer(D.greens.filter(g => g[2] === 1).map(g => g[1]), 0x55793f, 0.06);
-  flatLayer(D.greens.filter(g => g[2] === 2).map(g => g[1]), 0xb99a6b, 0.07);   // 운동장(흙)
+  flatLayer(D.greens.filter(g => g[2] === 2).map(g => g[1]), 0x86b06a, 0.07);   // 운동장(잔디 구장)
   flatLayer(D.greens.filter(g => g[2] === 3).map(g => g[1]), 0xc9a777, 0.07);   // 놀이터
   flatLayer(D.waters, 0x5d8fb5, 0.08);
 
@@ -133,8 +205,37 @@ export function buildCity(scene, renderer, D) {
     const ASPHALT = [C(0x3e4146), C(0x414449), C(0x45484c), C(0x55575a), C(0x66676a)];
     const SIDEWALK = C(0xa9a59d), PAVER = C(0xb7a585), FOOT = C(0xb3ada1), WHITE = C(0xe9e9e4), YELLOW = C(0xd9a520);
     const Y = [0.30, 0.28, 0.26, 0.22, 0.19, 0.16, 0.13];
+    const onAsphalt = makeAsphaltTest(D);            // 인도가 다른 길의 차도를 가로지르지 않게 잘라 내는 데 쓴다
+    // 길 양쪽에 차도 끝(inner)부터 폭 width 의 인도를 2.5m 조각으로 깐다. 차도 쪽에는 연석.
+    const swPos = [], SW_H = 0.45, CURB = C(0xd4d1ca), CURB_SIDE = C(0x9c9992);
+    function sidewalk(f, inner, width) {
+      const mid = inner + width / 2, outer = inner + width, cw = Math.min(0.2, width * 0.3);
+      for (let i = 0; i < f.length - 2; i += 2) {
+        const x0 = f[i], y0 = f[i + 1], dx = f[i + 2] - x0, dy = f[i + 3] - y0, len = Math.hypot(dx, dy);
+        if (len < 0.05) continue;
+        const ux = dx / len, uy = dy / len, n = Math.max(1, Math.ceil(len / 2.5));
+        for (const sd of [1, -1]) {
+          const nx = -uy * sd, ny = ux * sd;
+          for (let k = 0; k < n; k++) {
+            const a = k / n * len, b = (k + 1) / n * len;
+            if (onAsphalt(x0 + ux * a + nx * mid, y0 + uy * a + ny * mid) || onAsphalt(x0 + ux * (a + b) / 2 + nx * mid, y0 + uy * (a + b) / 2 + ny * mid) || onAsphalt(x0 + ux * b + nx * mid, y0 + uy * b + ny * mid)) continue;
+            const ax = x0 + ux * a, ay = y0 + uy * a, bx = x0 + ux * b, by = y0 + uy * b;
+            const P = (px, py, o, h) => [px + nx * o, h, -(py + ny * o)];
+            swPos.push(...P(ax, ay, inner, SW_H), ...P(ax, ay, outer, SW_H), ...P(bx, by, outer, SW_H), ...P(ax, ay, inner, SW_H), ...P(bx, by, outer, SW_H), ...P(bx, by, inner, SW_H));
+            // 연석: 윗면 띠와 차도 쪽 옆면
+            const q = (o0, h0, o1, h1, c) => {
+              push(ax + nx * o0, ay + ny * o0, h0, c); push(ax + nx * o1, ay + ny * o1, h1, c); push(bx + nx * o1, by + ny * o1, h1, c);
+              push(ax + nx * o0, ay + ny * o0, h0, c); push(bx + nx * o1, by + ny * o1, h1, c); push(bx + nx * o0, by + ny * o0, h0, c);
+            };
+            q(inner, SW_H + 0.012, inner + cw, SW_H + 0.012, CURB);
+            q(inner, 0.12, inner, SW_H + 0.012, CURB_SIDE);
+          }
+        }
+      }
+    }
     for (const [grp, w, , f, oneway, lanes] of D.roads) {
-      if (grp <= 2) ribbon(f, w / 2 + 3.2, 0.10, SIDEWALK, true);      // 보도
+      if (grp <= 2) ribbon(f, w / 2 + 3.2, 0.10, SIDEWALK, true);      // 인도 밑바탕 (꺾이는 곳의 틈을 메운다)
+      if (grp <= 3) sidewalk(f, w / 2, grp <= 2 ? 3.2 : 1.0);
       if (grp <= 4) ribbon(f, w / 2, Y[grp], ASPHALT[grp], w >= 3);
       else if (grp === 5) ribbon(f, w / 2, Y[5], PAVER, true);
       else ribbon(f, w / 2, Y[6], FOOT, false);
@@ -179,9 +280,34 @@ export function buildCity(scene, renderer, D) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.computeVertexNormals();
-    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     m.receiveShadow = true;
     scene.add(m);
+
+    // 인도 면: 보도블록 무늬(0.5 x 0.25m, 엇갈려 쌓기)를 위치로 계산해 그린다
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(swPos, 3));
+    sg.computeVertexNormals();
+    const smat = new THREE.MeshLambertMaterial({ color: 0xb9b3a8, side: THREE.DoubleSide });
+    smat.onBeforeCompile = sh => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', 'varying vec3 vWp;\n#include <common>')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', 'varying vec3 vWp;\n#include <common>')
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          vec2 pp = vWp.xz / vec2(0.5, 0.25);
+          pp.x += 0.5 * mod(floor(pp.y), 2.0);
+          vec2 fp = fract(pp), ip = floor(pp);
+          float fw = max(fwidth(vWp.x), fwidth(vWp.z)) * 4.0;
+          float fade = 1.0 - smoothstep(0.25, 1.0, fw);
+          float joint = 1.0 - smoothstep(0.04, 0.04 + fw, min(min(fp.x, 1.0 - fp.x), min(fp.y, 1.0 - fp.y)));
+          float tone = fract(sin(dot(ip, vec2(12.9898, 78.233))) * 43758.5453);
+          diffuseColor.rgb *= mix(0.97, (0.88 + 0.22 * tone) * (1.0 - 0.32 * joint), fade);`);
+    };
+    const sm = new THREE.Mesh(sg, smat);
+    sm.receiveShadow = true;
+    scene.add(sm);
 
     const rp = [];
     for (const f of D.rails) for (let i = 0; i < f.length / 2 - 1; i++) rp.push(f[2 * i], 0.5, -f[2 * i + 1], f[2 * i + 2], 0.5, -f[2 * i + 3]);
@@ -450,11 +576,12 @@ export function buildCity(scene, renderer, D) {
 
   // ---------- 나무 ----------
   {
-    const n = D.trees.length, dummy = new THREE.Object3D(), c = new THREE.Color();
+    const allTrees = D.trees.concat(lotTrees);
+    const n = allTrees.length, dummy = new THREE.Object3D(), c = new THREE.Color();
     const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ flatShading: true }), n * 2);
     const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.24, 1, 6), new THREE.MeshLambertMaterial({ color: 0x5b4a3a }), n);
     const GREENS = [0x4f7f3a, 0x5c8c42, 0x44733a, 0x6b9648, 0x567f35, 0x7a9b4a, 0x3f6b36];
-    D.trees.forEach(([x, y, s], i) => {
+    allTrees.forEach(([x, y, s], i) => {
       const r = rng(i + 7), th = 2.6 * s + r() * 0.8, cr = (2.1 + r() * 0.9) * s;
       dummy.rotation.set(0, r() * 6.28, 0);
       dummy.position.set(x, th / 2, -y); dummy.scale.set(s, th, s); dummy.updateMatrix(); trunks.setMatrixAt(i, dummy.matrix);

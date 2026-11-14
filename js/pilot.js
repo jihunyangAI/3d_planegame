@@ -3,6 +3,7 @@
 // 부위는 관절로 이어져 있어서 드론 위에 올라선 사격 자세로 꺾을 수 있다.
 // 총: assets/gun 의 그림을 보고 상자로 조립했다. 모두 -Z 가 앞.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // 원본 그림(1536x1024)에서 잰 값. tools/build_assets.py 와 맞아야 한다.
 const IMG = { cxFront: 408, cxBack: 1096, half: 205, sole: 985, top: 25, h: 1024 };
@@ -57,36 +58,60 @@ function ball(c, rx, ry, rz) { const g = new THREE.SphereGeometry(1, 14, 10); g.
 // 타원 단면 기둥 (몸통): y0~y1, 아래 반폭 w0 → 위 반폭 w1, 반두께 d
 function trunk(y0, y1, w0, w1, d) { const g = new THREE.CylinderGeometry(w1, w0, y1 - y0, 14, 2); g.scale(1, 1, d / Math.max(w0, w1)); g.translate(0, (y0 + y1) / 2, 0); return g; }
 
+// 재질은 모든 드론이 함께 쓴다
+const M = {};
+function mats() {
+  if (!M.metal) {
+    M.metal = new THREE.MeshStandardMaterial({ color: 0x3b3e42, roughness: 0.55, metalness: 0.6 });
+    M.orange = new THREE.MeshStandardMaterial({ color: 0xd9622a, roughness: 0.6, metalness: 0.25 });
+    M.glow = new THREE.MeshStandardMaterial({ color: 0x35e0c8, emissive: 0x35e0c8, emissiveIntensity: 1.8, roughness: 0.3 });
+    M.hair = new THREE.MeshStandardMaterial({ color: 0xb23a1c, roughness: 0.9 });
+    M.boot = new THREE.MeshStandardMaterial({ color: 0x35363a, roughness: 0.8 });
+    M.sole = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.9 });
+    M.helm = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.4, metalness: 0.5 });
+    M.visor = new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff3b30, emissiveIntensity: 1.6 });
+    M.body = new THREE.MeshStandardMaterial({ map: pilotTexture(), roughness: 0.85, metalness: 0 });
+    M.enemyBody = new THREE.MeshStandardMaterial({ map: pilotTexture(), roughness: 0.85, metalness: 0, color: 0xffa59a });
+  }
+  return M;
+}
+
+let rifleGeo = null;                               // 재질별로 합친 총 모양 (한 번만 만든다)
+function rifleParts() {
+  if (rifleGeo) return rifleGeo;
+  const parts = { metal: [], orange: [], glow: [] };
+  const box = (w, h, l, x, y, z, mat, rx = 0) => { const g = new THREE.BoxGeometry(w, h, l); if (rx) g.rotateX(rx); g.translate(x, y, z); parts[mat].push(g); };
+  box(0.085, 0.12, 0.40, 0, 0, -0.02, 'metal');                     // 몸체
+  const cell = new THREE.CylinderGeometry(0.055, 0.055, 0.15, 12); cell.rotateX(Math.PI / 2); cell.translate(0, 0.005, -0.03); parts.glow.push(cell.toNonIndexed());   // 에너지 셀
+  box(0.1, 0.13, 0.03, 0, 0, 0.06, 'metal'); box(0.1, 0.13, 0.03, 0, 0, -0.12, 'metal');   // 셀을 물고 있는 고리
+  box(0.08, 0.105, 0.36, 0, 0.005, -0.38, 'metal');                 // 총열 덮개
+  box(0.092, 0.07, 0.22, 0, 0.02, -0.29, 'orange');                 // 주황 장갑판 (위)
+  box(0.092, 0.035, 0.2, 0, -0.045, -0.36, 'orange');               // 주황 장갑판 (아래)
+  for (let i = 0; i < 3; i++) box(0.086, 0.012, 0.035, 0, 0.005, -0.44 - i * 0.05, 'glow');   // 청록 슬릿
+  box(0.1, 0.12, 0.07, 0, 0.005, -0.59, 'metal');                   // 총구 뭉치
+  box(0.07, 0.085, 0.012, 0, 0.005, -0.628, 'glow');                // 총구 발광면
+  box(0.04, 0.02, 0.42, 0, 0.07, -0.12, 'metal');                   // 위 레일
+  box(0.05, 0.065, 0.085, 0, 0.115, -0.02, 'metal'); box(0.052, 0.03, 0.05, 0, 0.1, 0.0, 'orange'); box(0.036, 0.04, 0.008, 0, 0.122, -0.064, 'glow');   // 조준경
+  box(0.055, 0.075, 0.24, 0, -0.005, 0.29, 'metal');                // 개머리판 뼈대
+  box(0.07, 0.15, 0.05, 0, -0.03, 0.43, 'metal'); box(0.074, 0.06, 0.14, 0, 0.045, 0.34, 'orange'); box(0.074, 0.035, 0.055, 0, -0.1, 0.43, 'orange');   // 견착부 + 주황 패드
+  box(0.05, 0.15, 0.065, 0, -0.125, 0.11, 'metal', 0.3); box(0.054, 0.03, 0.07, 0, -0.195, 0.132, 'orange', 0.3);   // 권총 손잡이
+  box(0.02, 0.012, 0.11, 0, -0.085, 0.03, 'metal');                 // 방아쇠울
+  rifleGeo = {};
+  for (const k in parts) rifleGeo[k] = mergeGeometries(parts[k].map(g => g.index ? g.toNonIndexed() : g));
+  return rifleGeo;
+}
 export function createRifle() {
-  const g = new THREE.Group();
-  const metal = new THREE.MeshStandardMaterial({ color: 0x3b3e42, roughness: 0.55, metalness: 0.6 });
-  const orange = new THREE.MeshStandardMaterial({ color: 0xd9622a, roughness: 0.6, metalness: 0.25 });
-  const glow = new THREE.MeshStandardMaterial({ color: 0x35e0c8, emissive: 0x35e0c8, emissiveIntensity: 1.8, roughness: 0.3 });
-  const box = (w, h, l, x, y, z, mat, rx = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), mat); m.position.set(x, y, z); m.rotation.x = rx; g.add(m); return m; };
-  box(0.085, 0.12, 0.40, 0, 0, -0.02, metal);                       // 몸체
-  const cell = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.15, 12), glow); cell.rotation.x = Math.PI / 2; cell.position.set(0, 0.005, -0.03); g.add(cell);   // 에너지 셀
-  box(0.1, 0.13, 0.03, 0, 0, 0.06, metal); box(0.1, 0.13, 0.03, 0, 0, -0.12, metal);   // 셀을 물고 있는 고리
-  box(0.08, 0.105, 0.36, 0, 0.005, -0.38, metal);                   // 총열 덮개
-  box(0.092, 0.07, 0.22, 0, 0.02, -0.29, orange);                   // 주황 장갑판 (위)
-  box(0.092, 0.035, 0.2, 0, -0.045, -0.36, orange);                 // 주황 장갑판 (아래)
-  for (let i = 0; i < 3; i++) box(0.086, 0.012, 0.035, 0, 0.005, -0.44 - i * 0.05, glow);   // 청록 슬릿
-  box(0.1, 0.12, 0.07, 0, 0.005, -0.59, metal);                     // 총구 뭉치
-  box(0.07, 0.085, 0.012, 0, 0.005, -0.628, glow);                  // 총구 발광면
-  box(0.04, 0.02, 0.42, 0, 0.07, -0.12, metal);                     // 위 레일
-  box(0.05, 0.065, 0.085, 0, 0.115, -0.02, metal); box(0.052, 0.03, 0.05, 0, 0.1, 0.0, orange); box(0.036, 0.04, 0.008, 0, 0.122, -0.064, glow);   // 조준경
-  box(0.055, 0.075, 0.24, 0, -0.005, 0.29, metal);                  // 개머리판 뼈대
-  box(0.07, 0.15, 0.05, 0, -0.03, 0.43, metal); box(0.074, 0.06, 0.14, 0, 0.045, 0.34, orange); box(0.074, 0.035, 0.055, 0, -0.1, 0.43, orange);   // 견착부 + 주황 패드
-  box(0.05, 0.15, 0.065, 0, -0.125, 0.11, metal, 0.3); box(0.054, 0.03, 0.07, 0, -0.195, 0.132, orange, 0.3);   // 권총 손잡이
-  box(0.02, 0.012, 0.11, 0, -0.085, 0.03, metal);                   // 방아쇠울
+  const g = new THREE.Group(), geo = rifleParts(), m = mats();
+  for (const k in geo) g.add(new THREE.Mesh(geo[k], m[k]));
   const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.005, -0.66); g.add(muzzle);
   return { root: g, muzzle };
 }
 
 // enemy: 붉은 기가 도는 옷 + 머리 대신 헬멧 (아군과 구분)
 export function createPilot({ enemy = false } = {}) {
-  const mat = new THREE.MeshStandardMaterial({ map: pilotTexture(), roughness: 0.85, metalness: 0, color: enemy ? 0xffa59a : 0xffffff });
+  const MT = mats(), mat = enemy ? MT.enemyBody : MT.body;
   const root = new THREE.Group();
-  const bootMat = new THREE.MeshStandardMaterial({ color: 0x35363a, roughness: 0.8 }), soleMat = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.9 }), tabMat = new THREE.MeshStandardMaterial({ color: 0xd9622a, roughness: 0.7 });
+  const bootMat = MT.boot, soleMat = MT.sole, tabMat = MT.orange;
   // 관절: pivot 을 중심으로 도는 그룹. geos 는 기준 자세(그림 속 A자 자세)의 몸 좌표로 만든 입체들.
   const joint = (parent, pivot, parentPivot, geos, axis) => {
     const j = new THREE.Group(); j.position.copy(pivot).sub(parentPivot);
@@ -101,19 +126,22 @@ export function createPilot({ enemy = false } = {}) {
   const spine = joint(hips, waist, hipC, [trunk(waist.y - 0.01, P(0, 222).y, 0.112, 0.15, 0.098), trunk(P(0, 228).y, P(0, 160).y, 0.05, 0.043, 0.045)], MID);
   const head = joint(spine, neck, waist, [ball(P(402, 98, -0.005), 0.1, 0.124, 0.108)], [P(402, 170), P(402, 25)]);
   if (enemy) {
-    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.128, 16, 12), new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.4, metalness: 0.5 }));
+    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.128, 16, 12), MT.helm);
     helm.position.set(0, P(0, 92).y - neck.y, 0); helm.scale.set(1, 1.08, 1.08); head.add(helm);
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.055, 0.06), new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff3b30, emissiveIntensity: 1.6 }));
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.055, 0.06), MT.visor);
     visor.position.set(0, P(0, 100).y - neck.y, -0.105); head.add(visor);
   } else {                                         // 삐죽 솟은 붉은 머리
-    const hair = new THREE.MeshStandardMaterial({ color: 0xb23a1c, roughness: 0.9 });
+    const tufts = [], hy = P(0, 98).y - neck.y;
     const spikes = [[0, 0.115, -0.05, -0.5, 0], [0.045, 0.118, -0.02, -0.3, -0.35], [-0.045, 0.118, -0.02, -0.3, 0.35], [0, 0.125, 0.02, 0.1, 0], [0.05, 0.11, 0.04, 0.3, -0.4], [-0.05, 0.11, 0.04, 0.3, 0.4], [0.02, 0.12, -0.075, -0.85, -0.15], [-0.03, 0.117, -0.07, -0.8, 0.2]];
     for (const [x, y, z, rx, rz] of spikes) {
-      const s = new THREE.Mesh(new THREE.ConeGeometry(0.034, 0.1, 6), hair);
-      s.position.set(x, P(0, 98).y - neck.y + y, z); s.rotation.set(rx, 0, rz); head.add(s);
+      const c = new THREE.ConeGeometry(0.034, 0.1, 6);
+      c.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, 0, rz))); c.translate(x, hy + y, z);
+      tufts.push(c.toNonIndexed());
     }
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.097, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), hair);
-    cap.position.set(0, P(0, 98).y - neck.y + 0.03, 0.004); cap.scale.set(1, 1.05, 1.08); head.add(cap);
+    const cap = new THREE.SphereGeometry(0.097, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.42);
+    cap.scale(1, 1.05, 1.08); cap.translate(0, hy + 0.03, 0.004);
+    tufts.push(cap.toNonIndexed());
+    head.add(new THREE.Mesh(mergeGeometries(tufts), MT.hair));
   }
   // 팔: side = +1 캐릭터 오른팔(+X, 앞 그림의 왼쪽), -1 왼팔
   const arm = side => {

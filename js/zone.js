@@ -34,7 +34,7 @@ export class Zone {
   }
 
   get done() { return this.phase >= CFG.zone.phases.length; }
-  get dps() { const p = CFG.zone.phases; return p[Math.min(this.phase, p.length - 1)].dps; }
+  get dps() { const p = CFG.zone.phases; return p[Math.min(this.phase, p.length - 1)].dps * (CFG.zone.dpsScale || 1); }
   // 다음 변화(축소 시작 또는 축소 끝)까지 남은 시간
   get timeLeft() { const ph = CFG.zone.phases[this.phase]; return ph ? (this.shrinking ? ph.shrink : ph.wait) - this.t : 0; }
   // 원 밖으로 얼마나 나가 있는가 (안쪽이면 음수)
