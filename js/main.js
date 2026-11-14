@@ -37,6 +37,7 @@ const street = buildStreet(scene, D, city.lampPos);
 const people = buildPeople(scene, D);
 const world = new World(D);
 const nav = new Nav(D, world);
+world.addProps(city.colliders.concat(street.colliders));     // 나무·옥상 구조물·기둥·이정표 (길찾기 그래프를 만든 뒤에 넣는다)
 const zone = new Zone(scene, D.radius);
 const items = new Items(scene, D, world, nav);
 
@@ -63,6 +64,8 @@ const beams = bots.map(() => {
 
 // ---------- 경기 ----------
 const aim = { yaw: 0, pitch: -0.12 };
+let lives = CFG.player.lives, respawnT = 0, deadWhy = '', livesShown = -1;      // 남은 목숨, 재출격까지 남은 시간
+const look = { x: 0, y: 0 };                       // 아직 시점에 반영하지 않은 마우스 회전량
 let over = false, spectate = null, zoneTick = 0, startT = 0, lastCount = 0, prevShrink = false, shake = 0, heartT = 0;
 // 가장 멀리 트인 방향(길을 따라)
 function openYaw(x, y, z) {
@@ -75,6 +78,7 @@ function openYaw(x, y, z) {
 }
 function startMatch() {
   over = false; spectate = null; zoneTick = 0; shake = 0;
+  lives = CFG.player.lives; respawnT = 0; look.x = look.y = 0;
   hurt = 0; toastTimer = 0; hud.toast.classList.remove('show');      // 지난 경기의 피격 표시와 알림을 지운다
   startT = 3; lastCount = 4; prevShrink = false;      // 3초 초읽기 뒤에 시작
   zone.reset(nav); items.reset();
@@ -106,7 +110,31 @@ function startMatch() {
   while (feed.length) feed.pop().el.remove();
   hud.diff.textContent = DIFFS[CFG.difficulty].label;
 }
-const aliveCount = () => fighters.reduce((n, f) => n + (f.alive ? 1 : 0), 0);
+// 재출격을 기다리는 나도 아직 경기에 남아 있는 것으로 센다
+const waiting = () => respawnT > 0 && !me.alive;
+const aliveCount = () => fighters.reduce((n, f) => n + (f.alive ? 1 : 0), 0) + (waiting() ? 1 : 0);
+// 목숨이 남았을 때: 자기장 안쪽, 적에게서 떨어진 길 위에 다시 나온다
+function respawnMe() {
+  let best = -1, bestScore = -Infinity, far = 140;
+  for (let k = 0; k < 240; k++) {
+    const n = nav.random(), x = nav.x[n], z = nav.z[n];
+    const inside = zone.cur.r - Math.hypot(x - zone.cur.x, z - zone.cur.z);
+    let near = 1e9;
+    for (const f of fighters) if (f.alive) near = Math.min(near, Math.hypot(f.pos.x - x, f.pos.z - z));
+    if (inside > 20 && near > far) { best = n; break; }
+    const score = Math.min(inside, 20) * 4 + Math.min(near, far);       // 딱 맞는 자리가 없으면 가장 나은 곳
+    if (score > bestScore) { bestScore = score; best = n; }
+    if (k % 40 === 39) far *= 0.75;
+  }
+  const x = nav.x[best], z = nav.z[best];
+  respawnT = 0;
+  aim.yaw = openYaw(x, CFG.spawnAlt, z); aim.pitch = -0.12; look.x = look.y = 0; turn = 0;
+  me.spawn(x, CFG.spawnAlt, z, aim.yaw, CFG.player.spawnProtect);
+  spectate = null; camDist = CFG.camera.dist; hurt = 0;
+  hud.dead.classList.remove('show');
+  toast(lives > 1 ? `재출격! 남은 목숨 ${lives}` : '재출격! 마지막 목숨입니다');
+  sfx.go();
+}
 
 function onDeath(victim, killer) {
   fx.burst(victim.pos, 44, COL.fire, 27, 1.7, 0.95, 6);
@@ -116,15 +144,25 @@ function onDeath(victim, killer) {
   sfx.explode(loud(victim.pos));
   addFeed(killer, victim);
   shake += Math.max(0, 1 - victim.pos.distanceTo(view().pos) / 70) * 0.6;
-  const left = aliveCount();
-  victim.place = left + 1;
   if (victim === me) {
-    hud.deadBy.textContent = killer ? killer.name + '의 레이저에 맞았습니다' : '자기장에 휩쓸렸습니다';
-    hud.deadPlace.textContent = me.place;
+    lives--;
+    if (lives > 0 && !over) respawnT = CFG.player.respawnDelay;      // 목숨이 남았으면 잠시 뒤 다시 출격
+  }
+  const left = aliveCount();
+  if (victim === me) {
+    deadWhy = killer ? killer.name + '의 레이저에 맞았습니다' : '자기장에 휩쓸렸습니다';
     hud.dead.classList.add('show'); hurt = 1;
-    spectate = killer && killer.alive ? killer : null;
-  } else if (killer === me) { hitMark(true); toast(victim.name + ' 격추!'); }
-  if (left <= 1 && !over) endMatch(fighters.find(f => f.alive) || null);
+    if (waiting()) hud.deadSub.textContent = `${deadWhy} · 남은 목숨 ${lives} · ${Math.ceil(respawnT)}초 뒤 재출격`;
+    else {
+      me.place = left + 1;
+      hud.deadSub.textContent = `${deadWhy} · ${me.place}위 · 남은 싸움을 관전 중 · R 다시 시작`;
+      spectate = killer && killer.alive ? killer : null;
+    }
+  } else {
+    victim.place = left + 1;
+    if (killer === me) { hitMark(true); toast(victim.name + ' 격추!'); }
+  }
+  if (left <= 1 && !over) endMatch(fighters.find(f => f.alive) || (waiting() ? me : null));
 }
 function endMatch(winner) {
   over = true;
@@ -172,6 +210,8 @@ function updateWrecks() {
 const keys = new Set();
 const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight']);
 let zoom = false, trigger = false, playing = false, debugPlay = false;
+let sensScale = 1;                                 // [ ] 키로 바꾸는 마우스 감도 배율 (이 브라우저에 저장)
+try { sensScale = clamp(parseFloat(localStorage.getItem('hdr-sens')) || 1, 0.3, 3); } catch (e) {}
 addEventListener('keydown', e => {
   if (GAME_KEYS.has(e.code)) e.preventDefault();
   keys.add(e.code);
@@ -179,6 +219,11 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') toast(toggleMute() ? '소리 끔' : '소리 켬');
   if (!playing && DIFF_KEYS[e.code]) setDifficulty(DIFF_KEYS[e.code]);
   if (e.code === 'KeyT') { const names = Object.keys(TIMES); setTimeOfDay(names[(names.indexOf(timeName) + 1) % names.length]); toast('시간대: ' + TIMES[timeName].label); }
+  if (e.code === 'BracketLeft' || e.code === 'BracketRight') {        // 마우스 감도
+    sensScale = clamp(sensScale * (e.code === 'BracketRight' ? 1.15 : 1 / 1.15), 0.3, 3);
+    try { localStorage.setItem('hdr-sens', sensScale.toFixed(3)); } catch (err) {}
+    toast('마우스 감도 ' + Math.round(sensScale * 100) + '%');
+  }
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); zoom = trigger = false; });
@@ -187,9 +232,10 @@ addEventListener('mouseup', e => { if (e.button === 2) zoom = false; if (e.butto
 addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('mousemove', e => {
   if (document.pointerLockElement !== canvas || !me.alive) return;
-  const s = CFG.mouse.sens * (camera.fov / CFG.camera.fov);
-  aim.yaw -= e.movementX * s;
-  aim.pitch = clamp(aim.pitch - e.movementY * s, -CFG.mouse.pitchMax, CFG.mouse.pitchMax);
+  // 바로 돌리지 않고 쌓아 두었다가 simulate() 에서 부드럽게 따라붙는다. 튀는 값은 잘라 낸다.
+  const s = CFG.mouse.sens * sensScale * (camera.fov / CFG.camera.fov), m = CFG.mouse.maxStep;
+  look.x -= clamp(e.movementX, -m, m) * s;
+  look.y -= clamp(e.movementY, -m, m) * s;
 });
 const overlay = $('overlay');
 overlay.addEventListener('click', () => canvas.requestPointerLock());
@@ -303,7 +349,7 @@ function drawMinimap() {
 const hud = { speed: $('h-speed'), alt: $('h-alt'), boost: $('h-boost'), warn: $('h-warn'), place: $('h-place'),
   heat: $('h-heat'), heatLabel: $('h-heat-label'), kills: $('h-kills'), hitmark: $('hitmark'), toast: $('toast'), bars: $('tbars'),
   hp: $('h-hp'), hpNum: $('h-hp-num'), shield: $('h-shield'), shieldNum: $('h-shield-num'), vignette: $('vignette'), feed: $('feed'),
-  dead: $('dead'), deadBy: $('dead-by'), deadPlace: $('dead-place'), threats: $('threats'),
+  dead: $('dead'), deadSub: $('dead-sub'), lives: $('h-lives'), threats: $('threats'),
   diff: $('h-diff'), count: $('count'), resStats: $('res-stats'),
   alive: $('h-alive'), zone: $('h-zone'), buffs: $('buffs'), result: $('result'), resTitle: $('res-title'), resSub: $('res-sub') };
 let toastTimer = 0, hitTimer = 0, hurt = 0, countTimer = 0;
@@ -378,6 +424,12 @@ function updateHud() {
   hud.hp.parentElement.classList.toggle('low', me.hp < me.maxHp * 0.35);
   hud.shield.style.width = (me.shield / me.maxShield * 100).toFixed(1) + '%';
   hud.hpNum.textContent = Math.ceil(me.hp); hud.shieldNum.textContent = Math.ceil(me.shield);
+  if (lives !== livesShown) {                      // 목숨: 남은 만큼 밝은 하트
+    livesShown = lives;
+    hud.lives.innerHTML = '';
+    for (let i = 0; i < CFG.player.lives; i++) { const h = document.createElement('i'); h.textContent = '♥'; if (i >= lives) h.className = 'off'; hud.lives.appendChild(h); }
+  }
+  if (waiting()) hud.deadSub.textContent = `${deadWhy} · 남은 목숨 ${lives} · ${Math.ceil(respawnT)}초 뒤 재출격`;
   buffEls.twin.style.display = me.alive && me.twinT > 0 ? '' : 'none'; buffEls.twin.textContent = '쌍발 레이저 ' + Math.ceil(me.twinT) + '초';
   buffEls.boost.style.display = me.alive && me.boostT > 0 ? '' : 'none'; buffEls.boost.textContent = '부스트 강화 ' + Math.ceil(me.boostT) + '초';
   hurt = Math.max(0, hurt - dt * 1.8);
@@ -409,7 +461,7 @@ const loud = p => clamp(1 - p.distanceTo(view().pos) / 420, 0.1, 1);
 // 조준점: 화면 가운데 광선이 닿는 곳. 조준 보정 각도 안에 적이 있으면 그 적(이동 예측 포함).
 function resolveAim(out) {
   const o = camera.position, c = CFG.laser;
-  const wallT = world.raycast(o.x, o.y, o.z, fwd.x, fwd.y, fwd.z, c.range);
+  const wallT = world.raycast(o.x, o.y, o.z, fwd.x, fwd.y, fwd.z, c.range, true);
   const lim = Math.tan(THREE.MathUtils.degToRad(c.assistDeg) * camera.fov / CFG.camera.fov);
   let best = null, bestAng = Infinity, bestDist = 0;
   for (const b of bots) {
@@ -459,12 +511,14 @@ function botFire(bot, t, dist) {
   sfx.laser(loud(f.pos) * 0.55, 0.62);
 }
 
-function onBoltHit(b, victim, p) {
+const _leaf = new THREE.Color();
+function onBoltHit(b, victim, p, kind, tint) {
   _sp.copy(p).addScaledVector(b.dir, -0.25);
   const res = victim && !over && victim.damage(b.damage, b.owner);
-  if (!res) {                                    // 벽·지면 (또는 보호 중인 상대)
-    fx.burst(_sp, 5, COL.spark, 9, 0.4, 0.22, 10);
-    sfx.wall(loud(p) * 0.7);
+  if (!res) {                                    // 드론이 아닌 것에 맞았다 (또는 보호 중인 상대)
+    if (kind === 'leaf') { fx.burst(_sp, 9, _leaf.set(tint), 6, 0.75, 0.55, 5); sfx.rustle(loud(p) * 0.7); }               // 나뭇잎이 흩날린다
+    else if (kind === 'prop' || kind === 'car') { fx.burst(_sp, 8, COL.hot, 13, 0.4, 0.25, 10); sfx.ting(loud(p) * 0.8); }  // 쇠붙이에 튄다
+    else { fx.burst(_sp, 5, COL.spark, 9, 0.4, 0.22, 10); sfx.wall(loud(p) * 0.7); }
     return;
   }
   fx.burst(_sp, 9, res === 'shield' ? COL.shield : COL.fire, 13, 0.55, 0.28, 6);
@@ -526,7 +580,7 @@ const ctx = {
 // ---------- 카메라 (3인칭 추적) ----------
 // 지금 화면이 따라가는 드론: 살아 있으면 나, 격추된 뒤에는 관전 대상
 function view() {
-  if (me.alive || me.wrecking) return me;        // 내 기체가 떨어지는 동안은 그것을 본다
+  if (me.alive || me.wrecking || waiting()) return me;        // 내 기체가 떨어지는 동안, 재출격을 기다리는 동안은 그 자리를 본다
   if (!spectate || !spectate.alive) spectate = fighters.find(f => f.alive) || null;
   return spectate || me;
 }
@@ -570,7 +624,9 @@ addEventListener('resize', () => {
 
 // ---------- 메인 루프 ----------
 const cmd = { fwd: 0, right: 0, up: 0, boost: false, yaw: 0 };
-let last = performance.now(), frame = 0, turn = 0, dt = 0, fpsAvg = 60, perfT = 0, passT = 0, hornT = 5;
+let last = performance.now(), frame = 0, turn = 0, dt = 0, fpsAvg = 60, perfT = 0, passT = 0, hornT = 5, bumpT = 0, rustleT = 0;
+const actors = [];                                // 살아 있는 드론들 (차·보행자와의 상호작용용)
+let pedsOnRoad = [];
 function simulate() {
   // 시작 초읽기: 3, 2, 1 동안은 모두 제자리에 있다
   const counting = startT > 0;
@@ -579,7 +635,12 @@ function simulate() {
     const n = Math.max(0, Math.ceil(startT));
     if (n !== lastCount) { lastCount = n; if (n > 0) { showCount(n); sfx.count(); } else { showCount('출격!'); sfx.go(); } }
   }
+  if (waiting() && (respawnT -= dt) <= 0) respawnMe();
   if (me.alive) {
+    // 마우스: 쌓인 회전량을 조금씩 나눠 반영해 시점이 홱 돌지 않게 한다
+    const lk = 1 - Math.exp(-CFG.mouse.smooth * dt), mx = look.x * lk, my = look.y * lk;
+    look.x -= mx; look.y -= my;
+    aim.yaw += mx; aim.pitch = clamp(aim.pitch + my, -CFG.mouse.pitchMax, CFG.mouse.pitchMax);
     // 좌우 키는 게걸음이 아니라 기수를 돌린다 (시점도 함께 돈다)
     const steer = axis(['ArrowLeft', 'KeyA'], ['ArrowRight', 'KeyD']);
     turn += (steer * CFG.drone.turnRate * (zoom ? 0.45 : 1) - turn) * (1 - Math.exp(-CFG.drone.turnAccel * dt));
@@ -587,7 +648,10 @@ function simulate() {
     cmd.fwd = counting ? 0 : axis(['KeyW'], ['KeyS']); cmd.up = counting ? 0 : axis(['ArrowUp'], ['ArrowDown']);
     cmd.boost = keys.has('ShiftLeft') || keys.has('ShiftRight'); cmd.yaw = aim.yaw;
     me.drone.aimPitch = aim.pitch;
+    const sp0 = me.drone.speed;
     me.drone.update(dt, cmd, world);
+    bumpT -= dt;
+    if (me.drone.bumped && sp0 > 8 && sp0 - me.drone.speed > 1.5 && bumpT <= 0) { bumpT = 0.35; sfx.bump(Math.min(1, sp0 / 25)); shake += 0.12; }   // 세게 부딪히면 쿵
   }
 
   bots.forEach((b, i) => {
@@ -612,9 +676,11 @@ function simulate() {
       const sy = Math.sin(f.drone.yaw), cy = Math.cos(f.drone.yaw);
       fx.emit(f.pos.x + sy * 1.4, f.pos.y - 0.15, f.pos.z + cy * 1.4, sy * 5, 0, cy * 5, f.isPlayer ? COL.laser : COL.red, 1.3, 0.3);
     }
+    if (f.alive && f.drone.leaf && f.drone.speed > 2 && frame % 2 === 0) fx.burst(f.pos, 2, _leaf.set(f.drone.leaf.color), 4, 0.6, 0.5, 4);   // 나뭇잎을 헤치고 지나간다
     if (f.alive && f.hp < f.maxHp * 0.35 && frame % 5 === 0) fx.emit(f.pos.x, f.pos.y, f.pos.z, (Math.random() - 0.5) * 2, 2.5, (Math.random() - 0.5) * 2, COL.fire, 0.8, 0.45, -2);   // 손상된 기체의 불티
   }
   updateWrecks();
+  if (me.alive && me.drone.leaf && me.drone.speed > 3 && (rustleT -= dt) <= 0) { rustleT = 0.22; sfx.rustle(0.8); }
   if (me.alive && me.hp < me.maxHp * 0.35 && (heartT -= dt) <= 0) { heartT = 0.85; sfx.heart(); }
   setEngine(me.alive ? me.drone.speed / CFG.drone.boostSpeed : 0, me.alive && me.drone.boosting, me.alive);
 
@@ -632,17 +698,20 @@ function simulate() {
   }
 
   // 차 소리: 주변 교통량만큼 웅웅거리고, 가까이 스치면 지나가는 소리, 가끔 경적
-  const heard = city.updateCars(dt, view().pos);
+  actors.length = 0;
+  for (const f of fighters) if (f.alive) actors.push(f);
+  const heard = city.updateCars(dt, view().pos, actors, pedsOnRoad);
+  if (me.carBump) { me.carBump = false; if (bumpT <= 0) { bumpT = 0.5; sfx.bump(0.9); sfx.horn(1); shake += 0.2; hornT = 3; } }      // 차에 부딪히면 경적이 울린다
   setTraffic(heard.level);
   passT -= dt; hornT -= dt;
   if (heard.near < 16 && passT <= 0) { passT = 1.3 + Math.random() * 1.2; sfx.pass(clamp(1 - heard.near / 16, 0.25, 1)); }
   if (hornT <= 0) { hornT = 4 + Math.random() * 9; if (heard.near < 110) sfx.horn(clamp(1 - heard.near / 110, 0.1, 1)); }
   street.update(dt);
-  people.update(dt);
+  pedsOnRoad = people.update(dt, actors, city.carNear);       // 차도 위의 보행자: 다음 프레임에 차들이 이들 앞에서 선다
   updateCamera(dt);
   if (me.gun.update(dt, me.alive && !over && !counting && (trigger || keys.has('Space')))) shoot();
   if (me.gun.justOverheated) { me.gun.justOverheated = false; sfx.overheat(); }
-  bolts.update(dt, world, fighters, onBoltHit);
+  bolts.update(dt, world, fighters, onBoltHit, city.carRay);
   fx.update(dt, camera, innerHeight);
 }
 function tick(now) {
@@ -679,5 +748,5 @@ $('loading').remove();
 requestAnimationFrame(tick);
 
 // 디버그·자동 시험용
-window.__game = { step: d => { dt = d; simulate(); }, me, bots, fighters, aim, world, nav, zone, items, keys, camera, scene, renderer, bolts, fx, CFG,
-  startMatch, setDifficulty, setTimeOfDay, isOver: () => over, setDebugPlay: v => { debugPlay = v; } };
+window.__game = { traffic: city.traffic, people, step: d => { dt = d; simulate(); }, me, bots, fighters, aim, world, nav, zone, items, keys, camera, scene, renderer, bolts, fx, CFG,
+  startMatch, setDifficulty, setTimeOfDay, isOver: () => over, lives: () => lives, look, setDebugPlay: v => { debugPlay = v; } };

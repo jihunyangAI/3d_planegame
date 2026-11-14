@@ -38,7 +38,9 @@ export const CFG = {
     shieldDelay: 5,           // 맞은 뒤 실드가 다시 차기 시작하기까지 (초, 적도 같음)
     shieldRegen: 12,          // 초당 실드 회복
     hitRadius: 1.9,           // 피격 판정 반지름 (m)
-    spawnProtect: 3,          // 경기 시작 직후 무적 시간 (초)
+    spawnProtect: 3,          // 경기 시작·재출격 직후 무적 시간 (초)
+    lives: 3,                 // 목숨 수. 격추돼도 목숨이 남아 있으면 다시 출격한다 (적은 1개)
+    respawnDelay: 3,          // 격추된 뒤 재출격까지 (초)
   },
   bot: {                      // 적 (쉬움 난이도)
     count: 7,
@@ -83,7 +85,12 @@ export const CFG = {
   },
   match: { spawnSpread: 230 },  // 시작할 때 참가자 사이 최소 거리 (m)
   camera: { dist: 9, height: 2.6, fov: 62, zoomFov: 30, boostFov: 8 },
-  mouse: { sens: 0.0022, pitchMax: 1.2 },
+  mouse: {
+    sens: 0.0012,             // 마우스 1픽셀당 회전량 (rad). 게임 중 [ ] 키로 조절
+    smooth: 20,               // 시점이 마우스를 따라붙는 빠르기 (클수록 즉각, 작을수록 부드럽다)
+    maxStep: 60,              // 한 번에 받아들이는 최대 이동량 (px). 마우스 값이 튀어 시점이 홱 도는 것을 막는다
+    pitchMax: 1.2,
+  },
   spawnAlt: 20,
 };
 

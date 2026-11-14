@@ -31,6 +31,7 @@ export class Drone {
     this.speedScale = 1;        // 속도 배율 (적은 조금 느리다)
     this.boostFree = false;     // 부스트 강화: 게이지가 줄지 않는다
     this.aimPitch = 0;          // 조준 높낮이 (조종사 상체와 총이 따라간다)
+    this.leaf = null;           // 지금 지나고 있는 나뭇잎 덩어리
     this.boost = CFG.drone.boostMax;
     this.boosting = false;
     this.bumped = false;        // 이번 프레임에 벽에 닿았는가
@@ -81,6 +82,10 @@ export class Drone {
       this.pos.addScaledVector(this.vel, dt / steps);
       if (world.collideSphere(this.pos, c.radius, this.vel, c.minAlt, c.ceiling)) this.bumped = true;
     }
+
+    // 나뭇잎 속을 지나면 걸려서 느려진다 (줄기에는 위에서 이미 부딪혔다)
+    this.leaf = world.inFoliage(this.pos);
+    if (this.leaf) this.vel.multiplyScalar(Math.exp(-2.6 * dt));
 
     // 모델: 속도에 따라 기울이고 로터를 돌린다
     const m = this.model;

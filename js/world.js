@@ -9,6 +9,8 @@ export class World {
     this.R = D.radius;
     this.buildings = [];
     this.cells = new Map();
+    this.propCells = new Map();
+    this.hitKind = null; this.hitColor = 0;
     this._stamp = 0;
     for (const [H, , name, f, holes] of D.buildings) {
       const ring = flip(f);
@@ -79,6 +81,7 @@ export class World {
         if (vn < 0) { vel.x -= vn * nx; vel.y -= vn * ny; vel.z -= vn * nz; }
         hit = moved = true;
       });
+      if (this._collideProps(pos, r, vel)) hit = moved = true;
       if (!moved) break;
     }
     if (pos.y < minY) { pos.y = minY; if (vel.y < 0) vel.y = 0; }
@@ -94,9 +97,12 @@ export class World {
   }
 
   // 광선 (o + d*t, d 는 단위벡터) 이 건물이나 지면에 처음 닿는 거리. 없으면 maxT.
-  raycast(ox, oy, oz, dx, dy, dz, maxT) {
+  // props 가 참이면 나무·기둥·옥상 구조물에도 막힌다 (레이저용). 무엇에 닿았는지는 hitKind 에 남는다:
+  // 'wall' 건물, 'ground' 땅, 'prop' 기둥·상자, 'leaf' 나뭇잎(이때 hitColor 는 잎 색), null 안 닿음.
+  raycast(ox, oy, oz, dx, dy, dz, maxT, props = false) {
     let best = maxT;
-    if (dy < 0) { const t = -oy / dy; if (t < best) best = t; }
+    this.hitKind = null; this.hitColor = 0;
+    if (dy < 0) { const t = -oy / dy; if (t < best) { best = t; this.hitKind = 'ground'; } }
     const stamp = ++this._stamp;
     const test = b => {
       if (b.seen === stamp) return;
@@ -113,13 +119,13 @@ export class World {
           const s = ((ax - ox) * dz - (az - oz) * dx) / den;
           if (s < 0 || s > 1) continue;
           const y = oy + dy * t;
-          if (y >= 0 && y <= b.top) best = t;
+          if (y >= 0 && y <= b.top) { best = t; this.hitKind = 'wall'; }
         }
       }
       // 지붕
       if (dy < 0 && oy > b.top) {
         const t = (b.top - oy) / dy;
-        if (t < best && inside(b, ox + dx * t, oz + dz * t)) best = t;
+        if (t < best && inside(b, ox + dx * t, oz + dz * t)) { best = t; this.hitKind = 'wall'; }
       }
     };
     // 격자를 광선 방향으로 따라간다 (2D DDA)
@@ -131,11 +137,126 @@ export class World {
     for (let guard = 0; guard < 400; guard++) {
       const c = this.cells.get(key(ci, cj));
       if (c) for (const b of c) test(b);
+      if (props) { const pc = this.propCells.get(key(ci, cj)); if (pc) for (const p of pc) best = this._rayProp(p, ox, oy, oz, dx, dy, dz, best); }
       const tNext = Math.min(tx, tz);
       if (tNext >= best) break;
       if (tx < tz) { ci += si; tx += tdx; } else { cj += sj; tz += tdz; }
     }
     return best;
+  }
+
+  // ----- 소품: 건물이 아닌 장애물 -----
+  // cyl  세로 기둥 { x, z, r, y0, y1 }           나무 줄기, 가로등·표지판 기둥, 물탱크
+  // box  돌려 놓은 상자 { x, y, z, hx, hy, hz, rot } 옥탑, 신호등 가로대, 이정표 판
+  // leaf 나뭇잎 덩어리 { x, z, r, y0, y1, color }  드론은 뚫고 지나가되 느려지고, 레이저는 막힌다
+  addProps(list) {
+    for (const p of list) {
+      let rad = p.r;
+      if (p.k === 'box') { p.c = Math.cos(p.rot); p.s = Math.sin(p.rot); rad = Math.hypot(p.hx, p.hz); }
+      if (p.k === 'leaf') { p.yc = (p.y0 + p.y1) / 2; p.hy = (p.y1 - p.y0) / 2; }
+      p.seen = 0;
+      for (let i = Math.floor((p.x - rad) / CELL), i1 = Math.floor((p.x + rad) / CELL); i <= i1; i++)
+        for (let j = Math.floor((p.z - rad) / CELL), j1 = Math.floor((p.z + rad) / CELL); j <= j1; j++) {
+          const k = key(i, j);
+          let c = this.propCells.get(k);
+          if (!c) this.propCells.set(k, c = []);
+          c.push(p);
+        }
+    }
+  }
+
+  // 구를 기둥·상자 밖으로 밀어낸다. 부딪혔으면 true.
+  _collideProps(pos, r, vel) {
+    let hit = false;
+    const stamp = ++this._stamp;
+    for (let i = Math.floor((pos.x - r) / CELL), i1 = Math.floor((pos.x + r) / CELL); i <= i1; i++)
+      for (let j = Math.floor((pos.z - r) / CELL), j1 = Math.floor((pos.z + r) / CELL); j <= j1; j++) {
+        const c = this.propCells.get(key(i, j));
+        if (!c) continue;
+        for (const p of c) {
+          if (p.seen === stamp || p.k === 'leaf') continue;
+          p.seen = stamp;
+          let nx = 0, ny = 0, nz = 0, push = 0;
+          if (p.k === 'cyl') {
+            if (pos.y - r >= p.y1 || pos.y + r <= p.y0) continue;
+            const dx = pos.x - p.x, dz = pos.z - p.z, d = Math.hypot(dx, dz);
+            const qy = Math.max(p.y0, Math.min(p.y1, pos.y)), k = d > p.r ? p.r / d : 1;      // 기둥에서 가장 가까운 점
+            const ex = dx - dx * k, ey = pos.y - qy, ez = dz - dz * k, e = Math.hypot(ex, ey, ez);
+            if (e >= r) continue;
+            if (e > 1e-5) { nx = ex / e; ny = ey / e; nz = ez / e; push = r - e; }
+            else if (d > 1e-5) { nx = dx / d; nz = dz / d; push = r + p.r - d; }               // 기둥 속: 옆으로
+            else { nx = 1; push = r + p.r; }
+          } else {
+            const dx = pos.x - p.x, dy = pos.y - p.y, dz = pos.z - p.z;
+            const lx = dx * p.c - dz * p.s, lz = dx * p.s + dz * p.c;                           // 상자 기준 좌표
+            const qx = Math.max(-p.hx, Math.min(p.hx, lx)), qy = Math.max(-p.hy, Math.min(p.hy, dy)), qz = Math.max(-p.hz, Math.min(p.hz, lz));
+            let ex = lx - qx, ey = dy - qy, ez = lz - qz;
+            const e = Math.hypot(ex, ey, ez);
+            if (e >= r) continue;
+            if (e > 1e-5) { ex /= e; ey /= e; ez /= e; push = r - e; }
+            else { ex = 0; ey = 1; ez = 0; push = r + p.hy - dy; }                              // 상자 속: 위로
+            nx = ex * p.c + ez * p.s; ny = ey; nz = -ex * p.s + ez * p.c;
+          }
+          pos.x += nx * push; pos.y += ny * push; pos.z += nz * push;
+          const vn = vel.x * nx + vel.y * ny + vel.z * nz;
+          if (vn < 0) { vel.x -= vn * nx; vel.y -= vn * ny; vel.z -= vn * nz; }
+          hit = true;
+        }
+      }
+    return hit;
+  }
+
+  // 광선이 소품 p 에 best 보다 먼저 닿으면 그 거리를 돌려준다
+  _rayProp(p, ox, oy, oz, dx, dy, dz, best) {
+    const ex = ox - p.x, ez = oz - p.z;
+    if (p.k === 'box') {
+      const ey = oy - p.y;
+      const lo = [ex * p.c - ez * p.s, ey, ex * p.s + ez * p.c], ld = [dx * p.c - dz * p.s, dy, dx * p.s + dz * p.c], h = [p.hx, p.hy, p.hz];
+      let t0 = 0, t1 = best;
+      for (let a = 0; a < 3; a++) {
+        if (Math.abs(ld[a]) < 1e-9) { if (Math.abs(lo[a]) > h[a]) return best; continue; }
+        let u = (-h[a] - lo[a]) / ld[a], v = (h[a] - lo[a]) / ld[a];
+        if (u > v) { const w = u; u = v; v = w; }
+        if (u > t0) t0 = u;
+        if (v < t1) t1 = v;
+        if (t0 > t1) return best;
+      }
+      if (t0 > 0 && t0 < best) { this.hitKind = 'prop'; return t0; }
+      return best;
+    }
+    if (p.k === 'leaf') {                             // 타원체: 세로를 눌러 구로 보고 푼다
+      const k = p.r / p.hy, ey = (oy - p.yc) * k, fy = dy * k;
+      const a = dx * dx + fy * fy + dz * dz, b = ex * dx + ey * fy + ez * dz, c = ex * ex + ey * ey + ez * ez - p.r * p.r;
+      const disc = b * b - a * c;
+      if (disc < 0 || a < 1e-9) return best;
+      const t = (-b - Math.sqrt(disc)) / a;
+      if (t > 0 && t < best) { this.hitKind = 'leaf'; this.hitColor = p.color; return t; }
+      return best;
+    }
+    const a = dx * dx + dz * dz, b = ex * dx + ez * dz, c = ex * ex + ez * ez - p.r * p.r;
+    if (a > 1e-9) {
+      const disc = b * b - a * c;
+      if (disc >= 0) {
+        const t = (-b - Math.sqrt(disc)) / a, y = oy + dy * t;
+        if (t > 0 && t < best && y >= p.y0 && y <= p.y1) { this.hitKind = 'prop'; return t; }
+      }
+    }
+    if (dy < 0 && oy > p.y1) {                        // 윗면
+      const t = (p.y1 - oy) / dy, hx = ex + dx * t, hz = ez + dz * t;
+      if (t < best && hx * hx + hz * hz <= p.r * p.r) { this.hitKind = 'prop'; return t; }
+    }
+    return best;
+  }
+
+  // pos 가 나뭇잎 덩어리 속이면 그 덩어리, 아니면 null
+  inFoliage(pos) {
+    const c = this.propCells.get(key(Math.floor(pos.x / CELL), Math.floor(pos.z / CELL)));
+    if (c) for (const p of c) {
+      if (p.k !== 'leaf') continue;
+      const dx = pos.x - p.x, dz = pos.z - p.z, dy = (pos.y - p.yc) / p.hy;
+      if ((dx * dx + dz * dz) / (p.r * p.r) + dy * dy < 1) return p;
+    }
+    return null;
   }
 
   _near(x, z, r, fn) {

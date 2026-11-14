@@ -2,6 +2,7 @@
 // 차는 +X 가 앞, 바닥이 y=0. 종류마다 InstancedMesh 하나로 그린다.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { signalCrossings, SIGNAL } from './roadgrid.js';
 
 function rng(seed) { let s = (seed * 2654435761) >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
@@ -239,6 +240,21 @@ export function buildTraffic(scene, D, lampMat) {
       if (cum[cum.length - 1] >= 50) paths.push({ w: 12, oneway: 0, lanes: 2, f, cum, len: cum[cum.length - 1], alley: true });
     });
   }
+  // 경로마다 신호등 있는 횡단보도의 위치(정지선)를 찾아 둔다
+  const signals = signalCrossings(D);
+  for (const p of paths) {
+    p.stops = [];
+    for (const sg of signals) {
+      let best = 9, at = 0;
+      for (let i = 0; i < p.f.length / 2 - 1; i++) {
+        const x0 = p.f[2 * i], y0 = p.f[2 * i + 1], dx = p.f[2 * i + 2] - x0, dy = p.f[2 * i + 3] - y0, l2 = dx * dx + dy * dy;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((sg.x - x0) * dx + (sg.y - y0) * dy) / l2)) : 0;
+        const d = Math.hypot(sg.x - x0 - dx * t, sg.y - y0 - dy * t);
+        if (d < best) { best = d; at = p.cum[i] + Math.sqrt(l2) * t; }
+      }
+      if (best < 3) p.stops.push({ s: at, grp: sg.grp });
+    }
+  }
   const cars = [], counts = {};
   for (const p of paths) {
     const lw = p.w / p.lanes, lanesList = [];
@@ -249,7 +265,7 @@ export function buildTraffic(scene, D, lampMat) {
       let s = r() * (p.alley ? 90 : 40);
       while (s < p.len) {
         const type = pick(p.w >= 24), len = TYPES[type].len;
-        cars.push({ p, s, speed, off: ln.off, dir: ln.dir, type, slot: counts[type] = (counts[type] || 0), half: len / 2 });
+        cars.push({ p, s, speed, v: speed, off: ln.off, dir: ln.dir, type, slot: counts[type] = (counts[type] || 0), half: len / 2, x: 0, z: 0, c: 1, sn: 0, solid: false });
         counts[type]++;
         s += len + (p.alley ? 45 + r() * 110 : 22 + r() * 70);
       }
@@ -262,11 +278,12 @@ export function buildTraffic(scene, D, lampMat) {
       .replace('#include <common>', 'attribute float aPaint;\nattribute vec3 aTint;\n#include <common>')
       .replace('#include <color_vertex>', '#include <color_vertex>\nvColor.rgb *= mix(vec3(1.0), aTint, aPaint);');
   };
-  const meshes = {}, c = new THREE.Color();
+  const meshes = {}, dims = {}, c = new THREE.Color();
   for (const name of names) {
     const n = counts[name] || 0;
     if (!n) continue;
     const g = TYPES[name].build(), tint = new Float32Array(n * 3);
+    g.computeBoundingBox(); dims[name] = { h: g.boundingBox.max.y, w: g.boundingBox.max.z };     // 충돌용 높이·반폭
     for (let i = 0; i < n; i++) { c.set(PAINTS[Math.floor(r() * PAINTS.length)]); tint[3 * i] = c.r; tint[3 * i + 1] = c.g; tint[3 * i + 2] = c.b; }
     g.setAttribute('aTint', new THREE.InstancedBufferAttribute(tint, 3));
     const m = new THREE.InstancedMesh(g, mat, n);
@@ -283,13 +300,132 @@ export function buildTraffic(scene, D, lampMat) {
   const dummy = new THREE.Object3D();
   // listener: 소리를 듣는 위치 (three.js 좌표). 돌려주는 값: level 주변 교통량 0~1, near 가장 가까운 차까지의 거리(m)
   const heard = { level: 0, near: Infinity };
-  function update(dt, listener) {
+  const NONE = [], low = [];
+  // 드론(구)을 차(돌려 놓은 상자) 밖으로 밀어낸다. 차는 꿈쩍하지 않고, 드론은 차가 가는 쪽으로 조금 떠밀린다.
+  function bump(car, a) {
+    const ex = a.pos.x - car.x, ez = a.pos.z - car.z, lim = car.half + 2.4;
+    if (ex * ex + ez * ez > lim * lim) return;
+    const d = dims[car.type], R = 1.6, cy = 0.3 + d.h / 2;
+    const lx = ex * car.c - ez * car.sn, lz = ex * car.sn + ez * car.c, ly = a.pos.y - cy;
+    const qx = Math.max(-car.half, Math.min(car.half, lx)), qy = Math.max(-d.h / 2, Math.min(d.h / 2, ly)), qz = Math.max(-d.w, Math.min(d.w, lz));
+    let nx = lx - qx, ny = ly - qy, nz = lz - qz, push;
+    const e = Math.hypot(nx, ny, nz);
+    if (e >= R) return;
+    if (e > 1e-4) { nx /= e; ny /= e; nz /= e; push = R - e; } else { nx = 0; ny = 1; nz = 0; push = R + d.h / 2 - ly; }
+    const wx = nx * car.c + nz * car.sn, wz = -nx * car.sn + nz * car.c;
+    a.pos.x += wx * push; a.pos.y += ny * push; a.pos.z += wz * push;
+    const vn = a.vel.x * wx + a.vel.y * ny + a.vel.z * wz;
+    if (vn < 0) { a.vel.x -= vn * wx; a.vel.y -= vn * ny; a.vel.z -= vn * wz; }
+    a.vel.x += car.c * car.speed * 0.3; a.vel.z -= car.sn * car.speed * 0.3;
+    a.carBump = true;
+  }
+  // 레이저가 차에 맞는가: 닿는 거리 (없으면 maxT)
+  function raycast(ox, oy, oz, dx, dy, dz, maxT) {
+    if (Math.min(oy, oy + dy * maxT) > 5) return maxT;       // 차보다 높이 지나간다
+    let best = maxT;
+    for (const car of cars) {
+      if (!car.solid) continue;
+      const ex = ox - car.x, ez = oz - car.z, lim = best + car.half + 2;
+      if (ex * ex + ez * ez > lim * lim) continue;
+      const d = dims[car.type], ey = oy - (0.3 + d.h / 2);
+      const lo = [ex * car.c - ez * car.sn, ey, ex * car.sn + ez * car.c], ld = [dx * car.c - dz * car.sn, dy, dx * car.sn + dz * car.c], h = [car.half, d.h / 2, d.w];
+      let t0 = 0, t1 = best, miss = false;
+      for (let a = 0; a < 3 && !miss; a++) {
+        if (Math.abs(ld[a]) < 1e-9) { if (Math.abs(lo[a]) > h[a]) miss = true; continue; }
+        let u = (-h[a] - lo[a]) / ld[a], v = (h[a] - lo[a]) / ld[a];
+        if (u > v) { const w = u; u = v; v = w; }
+        if (u > t0) t0 = u;
+        if (v < t1) t1 = v;
+        if (t0 > t1) miss = true;
+      }
+      if (!miss && t0 > 0 && t0 < best) best = t0;
+    }
+    return best;
+  }
+  // 차들의 위치 격자 (16m 칸): 앞차 찾기와 '근처에 차가 있나' 검사에 쓴다
+  const GC = 16, grid = new Map();
+  const gkey = (x, z) => (Math.floor(x / GC) + 256) * 1024 + Math.floor(z / GC) + 256;
+  function regrid() {
+    for (const cell of grid.values()) cell.length = 0;
+    for (const car of cars) {
+      const k = gkey(car.x, car.z);
+      let cell = grid.get(k);
+      if (!cell) grid.set(k, cell = []);
+      cell.push(car);
+    }
+  }
+  // (x,z) 반경 r 안에 차가 있는가 (보행자가 길을 건널 틈을 볼 때 쓴다). moving: 움직이는 차만 센다
+  function carNear(x, z, r, moving = true) {
+    const n = Math.ceil(r / GC);
+    for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+      const cell = grid.get(gkey(x + i * GC, z + j * GC));
+      if (cell) for (const car of cell) if (car.solid && (!moving || car.v > 1) && (car.x - x) * (car.x - x) + (car.z - z) * (car.z - z) < r * r) return true;
+    }
+    return false;
+  }
+  // 이 차가 지금 설 수 있는 가장 가까운 장애물까지의 여유 거리 (없으면 큰 값)
+  function gapAhead(car, idx, peds) {
+    const p = car.p, fx = car.c, fz = -car.sn;       // 진행 방향 (three.js x,z)
+    let gap = 1e9;
+    // 빨간 신호의 정지선
+    for (const st of p.stops) {
+      const d = car.dir > 0 ? st.s - 4.5 - (car.s + car.half) : (car.s - car.half) - (st.s + 4.5);
+      if (d < -1.5 || d > 60) continue;                // 이미 지났거나 아직 멀다
+      const light = SIGNAL.car(st.grp);
+      if (light === 'r' || (light === 'y' && d > 7)) gap = Math.min(gap, d);
+    }
+    // 앞차. 같은 차로의 앞차는 언제나 따라가며 선다.
+    // 내 앞을 가로지르는 차에는 번호가 앞선 차가 움직이며 지나갈 때만 양보한다 (서로 기다리다 꽉 막히지 않게).
+    const look = car.v * 1.6 + car.half + 14;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const cell = grid.get(gkey(car.x + fx * look * 0.5 + i * GC, car.z + fz * look * 0.5 + j * GC));
+      if (!cell) continue;
+      for (const o of cell) {
+        if (o === car) continue;
+        const rx = o.x - car.x, rz = o.z - car.z, ahead = rx * fx + rz * fz;
+        const sameLane = o.p === p && o.off === car.off && o.dir === car.dir;
+        if (sameLane) {
+          // 같은 차로: 경로 위의 거리로 누가 앞인지 가린다 (겹쳐 있어도 뒤차만 서므로 서로 막히지 않는다)
+          const lead = (o.s - car.s) * car.dir;
+          if (lead > look || lead < 0 || (lead === 0 && o.idx > idx)) continue;
+          gap = Math.min(gap, lead - car.half - o.half - 2.2);
+          continue;
+        }
+        if (ahead <= 0 || ahead > look || Math.abs(rx * fz - rz * fx) > 1.7) continue;
+        if (!(o.solid && o.idx < idx && o.v > 3 && o.c * fx - o.sn * fz < 0.5)) continue;      // 가로지르는 차: 번호가 앞서고 움직이는 차에만 양보
+        gap = Math.min(gap, ahead - car.half - o.half - 2.2);
+      }
+    }
+    // 내 차로 바로 앞 차도 위의 보행자 (멈출 수 있는 거리 안)
+    const pl = car.v * car.v / 7 + car.half + 5;
+    for (const q of peds) {
+      const rx = q.x - car.x, rz = q.z - car.z, ahead = rx * fx + rz * fz;
+      if (ahead <= 0 || ahead > pl || Math.abs(rx * fz - rz * fx) > 1.8) continue;
+      gap = Math.min(gap, ahead - car.half - 2.5);
+    }
+    return gap;
+  }
+  cars.forEach((car, i) => { car.idx = i; });
+
+  // actors: 차와 부딪힐 수 있는 드론들 [{ pos, vel }]. peds: 차도 위에 있는 보행자들 [{ x, z }]
+  function update(dt, listener, actors, peds = NONE) {
     let sum = 0, near2 = Infinity;
+    low.length = 0;
+    for (const a of actors || NONE) if (a.pos.y < 6.5) low.push(a);
     const lx = listener ? listener.x : 0, ly = listener ? listener.y : 0, lz = listener ? listener.z : 0;
     const lp = lg.attributes.position;
+    regrid();
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i], p = car.p;
-      car.s += car.speed * dt * car.dir;
+      // 속도: 막힌 곳이 없으면 제 속도로, 있으면 그 앞에서 멈추도록 줄인다
+      let want = car.speed;
+      if (car.solid && dt > 0) {
+        const gap = gapAhead(car, i, peds);
+        if (gap < 1e8) want = gap <= 0.3 ? 0 : Math.min(car.speed, Math.sqrt(2 * 3.5 * gap));
+      }
+      car.v += Math.max(-9 * dt, Math.min(2.6 * dt, want - car.v));
+      if (car.v < 0.05 && want === 0) car.v = 0;
+      car.s += car.v * dt * car.dir;
       if (car.s > p.len) car.s -= p.len; else if (car.s < 0) car.s += p.len;
       let lo = 0, hi = p.cum.length - 1;
       while (hi - lo > 1) { const m = (lo + hi) >> 1; if (p.cum[m] <= car.s) lo = m; else hi = m; }
@@ -304,6 +440,8 @@ export function buildTraffic(scene, D, lampMat) {
         if (d2 < 14400) { sum += 1 / (1 + d2 / 500); if (d2 < near2) near2 = d2; }
       }
       dummy.rotation.y = Math.atan2(uy * car.dir, ux * car.dir);
+      car.x = x; car.z = -y; car.c = ux * car.dir; car.sn = uy * car.dir; car.solid = dummy.scale.x > 0.6;
+      if (car.solid) for (let k = 0; k < low.length; k++) bump(car, low[k]);
       dummy.updateMatrix();
       meshes[car.type].setMatrixAt(car.slot, dummy.matrix);
       lp.setXYZ(i, x + ux * car.dir * car.half, 1.0, -(y + uy * car.dir * car.half));
@@ -314,5 +452,5 @@ export function buildTraffic(scene, D, lampMat) {
     return heard;
   }
   update(0);
-  return { update, count: cars.length, setNight(n) { lights.material.opacity = n; lights.visible = n > 0.02; } };
+  return { update, raycast, carNear, cars, count: cars.length, setNight(n) { lights.material.opacity = n; lights.visible = n > 0.02; } };
 }

@@ -1,6 +1,7 @@
 // 거리 시설물: 신호등, 교통표지판, 방향 이정표, 도로명판, 지하철 출구 표지, 가로등 기둥.
 // 지도 좌표 (x 동, y 북) -> three.js (x, 높이, -y). 충돌은 없다.
 import * as THREE from 'three';
+import { SIGNAL } from './roadgrid.js';
 
 const POLE = 0x6b7076, DARK = 0x24272b;
 const KFONT = '"Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
@@ -25,6 +26,7 @@ export function buildStreet(scene, D, lampPos) {
   const face = map => new THREE.MeshBasicMaterial({ map, fog: true });
   const back = std({ color: 0x8b9096 });
   const dummy = new THREE.Object3D();
+  const colliders = [];                             // 드론과 레이저가 부딪히는 것 (world.addProps 로 넘긴다)
 
   // ----- 기둥·가로대: 한 InstancedMesh 에 모은다 -----
   const bars = [];                                  // [x, y, z, sx, sy, sz, rotY, color]
@@ -143,6 +145,7 @@ export function buildStreet(scene, D, lampPos) {
     const m = new THREE.Mesh(guideGeo, [back, back, back, back, face(tex), back]);
     m.position.set(px + nx * (arm - 3.0), H, -(py + ny * (arm - 3.0))); m.rotation.y = rot;
     group.add(m);
+    colliders.push({ k: 'box', x: m.position.x, y: H, z: m.position.z, hx: 3.2, hy: 1.25, hz: 0.12, rot });
   }
 
   // 도로명판 (파란 바탕, 앞뒤 양면)
@@ -186,6 +189,7 @@ export function buildStreet(scene, D, lampPos) {
     const m = new THREE.Mesh(exitGeo, [side, side, side, side, mat, mat]);
     m.position.set(x, 3.4, -y); m.rotation.y = (ref ? +ref : 0) * 0.7;
     group.add(m);
+    colliders.push({ k: 'box', x, y: 3.4, z: -y, hx: 0.5, hy: 0.63, hz: 0.16, rot: m.rotation.y });
   }
 
   // ----- 가로등 기둥 -----
@@ -194,6 +198,13 @@ export function buildStreet(scene, D, lampPos) {
     pole(lampPos[i], lampPos[i + 2], h, 0.07, 0x565a60);
     bar(lampPos[i], h + 0.06, lampPos[i + 2], 0.7, 0.12, 0.28, (i * 0.37) % 3.14, 0x3c4046);
   }
+
+  // 기둥은 세로 원기둥, 긴 가로대는 상자로 부딪힌다 (가로등 머리 같은 작은 것은 뺀다)
+  for (const [x, y, z, sx, sy, sz, rot] of bars) {
+    if (sx === sz && sy > 1) colliders.push({ k: 'cyl', x, z, r: Math.max(sx / 2, 0.08), y0: y - sy / 2, y1: y + sy / 2 });
+    else if (sx > 1.5) colliders.push({ k: 'box', x, y, z, hx: sx / 2, hy: Math.max(sy / 2, 0.1), hz: Math.max(sz / 2, 0.1), rot });
+  }
+  for (const [x, y, z, rot] of heads) colliders.push({ k: 'box', x, y, z, hx: 0.68, hy: 0.23, hz: 0.15, rot });
 
   // ----- 인스턴스 메시로 굽기 -----
   {
@@ -232,12 +243,12 @@ export function buildStreet(scene, D, lampPos) {
   // 신호 주기: 두 무리가 번갈아 초록 → 노랑 → 빨강
   let t = 0;
   function update(dt) {
-    t = (t + dt) % 40;
+    SIGNAL.t = (SIGNAL.t + dt) % 40;                  // 차와 보행자도 이 시각을 보고 움직인다
     for (const grp of [0, 1]) {
-      const p = (t + grp * 20) % 40, on = p < 17 ? 'g' : p < 20 ? 'y' : 'r';
+      const on = SIGNAL.car(grp);
       for (const c of ['r', 'y', 'g']) lampMats[c][grp].color.set(c === on ? ON[c] : OFF[c]);
     }
   }
   update(0);
-  return { update };
+  return { update, colliders };
 }

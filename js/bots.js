@@ -25,7 +25,7 @@ export class Bot {
     this.target = null; this.targetVisible = false; this.lostT = 0;
     this.pending = null; this.pendingT = 0;
     this.scanT = Math.random() * SCAN;
-    this.alt = 8 + Math.random() * 22;            // 선호 고도
+    this.alt = 12 + Math.random() * 20;           // 선호 고도 (가로수·신호등·이정표보다 높게)
     this.altOff = (Math.random() - 0.5) * 10;     // 교전 때 상대보다 얼마나 위·아래에 있을지
     this.strafe = Math.random() < 0.5 ? 1 : -1; this.strafeT = 1;
     this.phase = 'cool'; this.phaseT = 1 + Math.random() * 2; this.shots = 0;

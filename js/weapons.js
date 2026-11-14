@@ -46,14 +46,19 @@ export class Bolts {
     this.mesh.setColorAt(2 * i, b.color); this.mesh.instanceColor.needsUpdate = true;
   }
 
-  // victims: [{ pos, hitRadius, alive }]. onHit(bolt, victim|null, point) — victim 이 null 이면 벽·지면.
-  update(dt, world, victims, onHit) {
+  // victims: [{ pos, hitRadius, alive }]. onHit(bolt, victim|null, point, kind, tint) — victim 이 null 이면 kind 가 닿은 것
+  // ('wall' 'ground' 'prop' 'leaf' 'car'), tint 는 나뭇잎일 때의 잎 색.
+  // carRay(ox,oy,oz,dx,dy,dz,maxT): 차에 닿는 거리를 돌려주는 함수 (없어도 된다)
+  update(dt, world, victims, onHit, carRay) {
     const c = CFG.laser;
     for (let i = 0; i < MAXB; i++) {
       const b = this.list[i];
       if (!b.alive) continue;
       const step = Math.min(c.speed * dt, b.left);
-      let t = world.raycast(b.pos.x, b.pos.y, b.pos.z, b.dir.x, b.dir.y, b.dir.z, step), who = null;
+      let t = world.raycast(b.pos.x, b.pos.y, b.pos.z, b.dir.x, b.dir.y, b.dir.z, step, true), who = null;
+      let kind = world.hitKind;
+      const tint = world.hitColor;
+      if (carRay) { const tc = carRay(b.pos.x, b.pos.y, b.pos.z, b.dir.x, b.dir.y, b.dir.z, t); if (tc < t) { t = tc; kind = 'car'; } }
       const wallT = t;
       for (const v of victims) {
         if (!v.alive || v === b.owner) continue;
@@ -68,7 +73,7 @@ export class Bolts {
       }
       const hit = who || wallT < step;
       b.pos.addScaledVector(b.dir, t); b.left -= t; b.flown += t;
-      if (hit) { b.alive = false; onHit(b, who, b.pos); }
+      if (hit) { b.alive = false; onHit(b, who, b.pos, kind, tint); }
       else if (b.left <= 0 || Math.hypot(b.pos.x, b.pos.z) > world.R) b.alive = false;
 
       if (!b.alive) { this.mesh.setMatrixAt(2 * i, _hidden); this.mesh.setMatrixAt(2 * i + 1, _hidden); continue; }

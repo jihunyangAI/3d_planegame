@@ -2,7 +2,7 @@
 // 몸통·다리·팔을 각각 InstancedMesh 로 그리고, 다리와 팔은 걸음에 맞춰 앞뒤로 흔든다. 충돌은 없다.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeAsphaltTest } from './roadgrid.js';
+import { makeAsphaltTest, signalCrossings, SIGNAL } from './roadgrid.js';
 
 function rng(seed) { let s = (seed * 2654435761) >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
@@ -15,6 +15,7 @@ const WALK = { 0: [1.6, 2.0, 11, 0.46], 1: [1.6, 2.0, 11, 0.46], 2: [1.6, 2.0, 1
 
 export function buildPeople(scene, D) {
   const r = rng(321), onAsphalt = makeAsphaltTest(D);
+  const onCarRoad = makeAsphaltTest(D, true), signals = signalCrossings(D);
   const walkers = [];
   for (const [grp, w, , f] of D.roads) {
     const rule = WALK[grp];
@@ -43,7 +44,7 @@ export function buildPeople(scene, D) {
     for (let k = 0; k < n; k++) {
       // 보행자 거리(5)는 길 전체에 흩어지고, 나머지는 인도가 있는 쪽에서만 걷는다
       const off = grp === 5 ? (r() - 0.5) * (w - 2) : sides[Math.floor(r() * sides.length)] * (w / 2 + rule[0] + (r() - 0.5) * rule[1]);
-      walkers.push({ f, cum, len, s: r() * len, dir: r() < 0.5 ? 1 : -1, off, y: rule[3], speed: 1.0 + r() * 0.7, phase: r() * 6.28, h: 0.9 + r() * 0.2 });
+      walkers.push({ wait: false, waitT: 0, onRoad: false, f, cum, len, s: r() * len, dir: r() < 0.5 ? 1 : -1, off, y: rule[3], speed: 1.0 + r() * 0.7, phase: r() * 6.28, h: 0.9 + r() * 0.2 });
     }
   }
   const N = walkers.length;
@@ -84,12 +85,23 @@ export function buildPeople(scene, D) {
 
   const dummy = new THREE.Object3D();
   dummy.rotation.order = 'YXZ';                       // 방향(Y)으로 돈 다음 걸음(Z)으로 흔든다
-  function update(dt) {
+  const low = [], NONE = [], onRoad = [];
+  let tick = 0;
+  // actors: 드론들 [{ pos }]. 드론이 낮게 다가오면 반대쪽으로 뛰어 달아난다.
+  // carNear(x, z, r): 그 근처에 움직이는 차가 있는가 (없으면 길을 건넌다). 돌려주는 값: 차도 위에 있는 보행자들.
+  function update(dt, actors, carNear) {
+    low.length = 0;
+    for (const a of actors || NONE) if (a.pos.y < 8) low.push(a);
+    tick++;
+    onRoad.length = 0;
     for (let i = 0; i < N; i++) {
       const p = walkers[i];
-      p.s += p.speed * p.dir * dt;
+      // 차도를 건너는 동안은 서두르고, 건너기 전에 기다리는 동안은 서 있는다
+      const hurry = p.panic > 0 ? 2.8 : p.wait ? 0 : p.onRoad ? 1.5 : 1;
+      if (p.panic > 0) p.panic -= dt;
+      p.s += p.speed * hurry * p.dir * dt;
       if (p.s > p.len) { p.s = p.len; p.dir = -1; } else if (p.s < 0) { p.s = 0; p.dir = 1; }
-      p.phase += p.speed * dt * 4.2;
+      if (hurry > 0) p.phase += p.speed * hurry * dt * 4.2; else p.phase += (Math.round(p.phase / Math.PI) * Math.PI - p.phase) * Math.min(1, dt * 8);   // 설 때는 다리를 모은다
       let lo = 0, hi = p.cum.length - 1;
       while (hi - lo > 1) { const m = (lo + hi) >> 1; if (p.cum[m] <= p.s) lo = m; else hi = m; }
       const x0 = p.f[2 * lo], y0 = p.f[2 * lo + 1], dx = p.f[2 * lo + 2] - x0, dy = p.f[2 * lo + 3] - y0, L = p.cum[lo + 1] - p.cum[lo] || 1;
@@ -98,6 +110,27 @@ export function buildPeople(scene, D) {
       const head = Math.atan2(uy * p.dir, ux * p.dir), sw = Math.sin(p.phase) * 0.55, y = p.y + Math.abs(Math.cos(p.phase)) * 0.03;
       const sh = Math.sin(head), ch = Math.cos(head);
       dummy.scale.setScalar(p.h);
+      // 세 프레임에 한 번: 지금 차도 위인지, 한 걸음 앞이 차도인지 본다
+      if ((i + tick) % 3 === 0 && carNear) {
+        const ax = x + ux * p.dir * 1.5, az = z - uy * p.dir * 1.5;       // 한 걸음 앞 (three.js 좌표)
+        const now = onCarRoad(x, -z), next = onCarRoad(ax, -az);
+        p.onRoad = now;
+        if (!now && next) {                             // 연석 앞: 건너도 되는지
+          let sig = null, sd = 28;
+          for (const g of signals) { const d = Math.hypot(g.x - x, g.y + z); if (d < sd) { sd = d; sig = g; } }
+          // 신호등이 있으면 보행 신호에, 없으면 근처에 차가 전혀 없거나 그 자리의 '건너는 차례'(20초 중 7초)일 때 건넌다.
+          // 차례를 두는 것은 보행자가 줄줄이 건너 차가 영영 못 가는 일을 막기 위해서다.
+          const turn = (SIGNAL.t + (Math.abs(Math.floor(x / 50) * 7 + Math.floor(z / 50) * 13) % 20)) % 20 < 7;
+          const go = p.waitT > 30 || (sig ? SIGNAL.walk(sig.grp) : !carNear(ax + ux * p.dir * 3, az - uy * p.dir * 3, 22, false) || (turn && !carNear(ax + ux * p.dir * 3, az - uy * p.dir * 3, 9)));
+          p.wait = !go;
+          p.waitT = go ? 0 : p.waitT + dt * 3;
+        } else { p.wait = false; if (!now) p.waitT = 0; }
+      }
+      if (p.onRoad) onRoad.push({ x, z });
+      for (let k = 0; k < low.length; k++) {
+        const ex = x - low[k].pos.x, ez = z - low[k].pos.z;
+        if (ex * ex + ez * ez < 90) { p.panic = 1.8; p.dir = ex * ux - ez * uy >= 0 ? 1 : -1; }      // 드론에서 멀어지는 쪽으로
+      }
       dummy.position.set(x, y, z); dummy.rotation.set(0, head, 0); dummy.updateMatrix(); body.setMatrixAt(i, dummy.matrix);
       for (let k = 0; k < 2; k++) {
         const side = k ? 1 : -1, lz = side * 0.1 * p.h, az = side * 0.24 * p.h;                 // 몸 옆으로의 거리 (로컬 Z)
@@ -106,7 +139,8 @@ export function buildPeople(scene, D) {
       }
     }
     body.instanceMatrix.needsUpdate = legs.instanceMatrix.needsUpdate = arms.instanceMatrix.needsUpdate = true;
+    return onRoad;
   }
   update(0);
-  return { update, count: N };
+  return { update, walkers, count: N };
 }

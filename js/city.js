@@ -576,7 +576,7 @@ export function buildCity(scene, renderer, D) {
   }
 
   // ---------- 나무 ----------
-  buildTrees(scene, D.trees.concat(lotTrees));       // 가로수·공원·빈터의 나무 (수종 여섯 가지, trees.js)
+  const treeInfo = buildTrees(scene, D.trees.concat(lotTrees));       // 가로수·공원·빈터의 나무 (수종 여섯 가지, trees.js)
 
   // ---------- 차량 ----------
   const traffic = buildTraffic(scene, D, lampMat);
@@ -622,5 +622,9 @@ export function buildCity(scene, renderer, D) {
     envRT = rt;
   }
 
-  return { setTime, updateCars: traffic.update, lampPos };
+  // 건물 밖의 장애물 (world.addProps 에 넘긴다)
+  const colliders = treeInfo.colliders.concat(
+    roofBoxes.map(b => ({ k: 'box', x: b.x, y: b.h + b.bh / 2, z: -b.y, hx: b.w / 2, hy: b.bh / 2, hz: b.d / 2, rot: b.ang })),
+    roofTanks.map(t => ({ k: 'cyl', x: t.x, z: -t.y, r: 0.85, y0: t.h, y1: t.h + 1.5 })));
+  return { setTime, updateCars: traffic.update, carRay: traffic.raycast, carNear: traffic.carNear, traffic, lampPos, colliders };
 }

@@ -101,6 +101,9 @@ export const sfx = {
     g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.22 * vol, t + 0.3); g.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
     s.connect(f).connect(g).connect(master); s.start(t, Math.random() * 0.4, 0.9);
   },
+  bump(vol = 1) { if (!ctx) return; tone('sine', 110, 48, 0.16, 0.4 * vol); noise(0.12, 0.25 * vol, 1400, 300); },      // 벽·기둥·차에 부딪힘
+  ting(vol = 1) { if (!ctx) return; tone('triangle', 2600, 2100, 0.09, 0.14 * vol); noise(0.05, 0.08 * vol, 7000, 3000); },   // 레이저가 쇠붙이에 맞음
+  rustle(vol = 1) { if (!ctx) return; noise(0.2, 0.13 * vol, 7000, 2200); },                                               // 나뭇잎
   heart() { if (!ctx) return; tone('sine', 72, 44, 0.16, 0.4); },
   overheat() { if (!ctx) return; tone('square', 190, 85, 0.3, 0.13); noise(0.4, 0.07, 6000, 1500); },
 };
