@@ -1,9 +1,10 @@
 // 드론(파일럿 탑승) 모델과 호버 비행 물리. 플레이어와 적이 함께 쓴다.
 import * as THREE from 'three';
 import { CFG } from './config.js';
+import { createPilot } from './pilot.js';
 
 // 기수는 -Z 방향. 원점이 충돌 구의 중심.
-export function createDroneModel(accent = 0x35d6ff) {
+export function createDroneModel(accent = 0x35d6ff, enemy = false) {
   const root = new THREE.Group();          // 위치 + 방위(yaw)
   const tilt = new THREE.Group();          // 가속에 따른 기울임
   root.add(tilt);
@@ -36,35 +37,26 @@ export function createDroneModel(accent = 0x35d6ff) {
     add(discGeo, discMat, 0, 0.01, 0, spin);
     rotors.push(spin);
   }
-  // 파일럿 (안장에 앉아 손잡이를 잡은 자세)
-  add(new THREE.BoxGeometry(0.42, 0.14, 0.6), grey, 0, 0.1, 0.2);                 // 안장
-  add(new THREE.CapsuleGeometry(0.2, 0.42, 4, 10), suit, 0, 0.62, 0.18).rotation.x = -0.25;
-  add(new THREE.SphereGeometry(0.2, 14, 10), dark, 0, 1.12, 0.06);                // 헬멧
-  add(new THREE.BoxGeometry(0.3, 0.1, 0.06), glow, 0, 1.13, -0.13);               // 바이저
-  for (const s of [-1, 1]) {
-    add(new THREE.CapsuleGeometry(0.075, 0.5, 3, 6), suit, s * 0.3, 0.68, -0.14).rotation.set(-1.05, 0, s * -0.25);   // 팔
-    add(new THREE.CapsuleGeometry(0.09, 0.5, 3, 6), suit, s * 0.3, 0.2, -0.05).rotation.set(-1.2, 0, 0);             // 다리
-  }
-  add(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6), dark, 0, 0.5, -0.45).rotation.z = Math.PI / 2;                 // 손잡이
-  add(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 6), dark, 0, 0.27, -0.5).rotation.x = 0.3;
-  // 레이저 포
-  const barrelGeo = new THREE.CylinderGeometry(0.07, 0.09, 1.3, 10); barrelGeo.rotateX(Math.PI / 2);
-  add(barrelGeo, grey, 0, -0.3, -0.75);
-  add(new THREE.SphereGeometry(0.09, 10, 8), glow, 0, -0.3, -1.42);
-  const muzzle = new THREE.Object3D(); muzzle.position.set(0, -0.3, -1.5); tilt.add(muzzle);
+  // 조종사: 드론 위에 올라서서 레이저총을 겨눈다
+  const pilot = createPilot({ enemy });
+  pilot.root.position.set(0, 0.03, 0.04);
+  tilt.add(pilot.root);
+  const muzzle = pilot.muzzle;
 
   root.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
-  return { root, tilt, rotors, muzzle };
+  return { root, tilt, rotors, muzzle, pilot };
 }
 
 export class Drone {
-  constructor(accent) {
-    this.model = createDroneModel(accent);
+  constructor(accent, enemy = false) {
+    this.model = createDroneModel(accent, enemy);
     this.pos = this.model.root.position;
     this.vel = new THREE.Vector3();
     this.yaw = 0;
     this._yawRate = 0;
     this.speedScale = 1;        // 속도 배율 (적은 조금 느리다)
+    this.boostFree = false;     // 부스트 강화: 게이지가 줄지 않는다
+    this.aimPitch = 0;          // 조준 높낮이 (조종사 상체와 총이 따라간다)
     this.boost = CFG.drone.boostMax;
     this.boosting = false;
     this.bumped = false;        // 이번 프레임에 벽에 닿았는가
@@ -90,7 +82,7 @@ export class Drone {
     if (this._locked && this.boost >= c.boostRelock) this._locked = false;
     this.boosting = cmd.boost && moving && this.boost > 0 && !this._locked;
     if (this.boosting) {
-      this.boost = Math.max(0, this.boost - c.boostDrain * dt);
+      if (!this.boostFree) this.boost = Math.max(0, this.boost - c.boostDrain * dt);
       this._regenWait = c.boostRegenDelay;
       if (this.boost === 0) this._locked = true;
     } else if ((this._regenWait -= dt) <= 0) {
@@ -119,6 +111,7 @@ export class Drone {
     // 모델: 속도에 따라 기울이고 로터를 돌린다
     const m = this.model;
     m.root.rotation.y = this.yaw;
+    m.pilot.setPitch(this.aimPitch - m.tilt.rotation.x);
     const vf = (-sin * this.vel.x - cos * this.vel.z) / c.boostSpeed, vr = (cos * this.vel.x - sin * this.vel.z) / c.boostSpeed;
     const kt = 1 - Math.exp(-8 * dt);
     m.tilt.rotation.x += (-vf * 0.42 - m.tilt.rotation.x) * kt;

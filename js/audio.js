@@ -36,5 +36,9 @@ export const sfx = {
   hit(vol = 1) { if (!ctx) return; tone('triangle', 1900, 900, 0.07, 0.2 * vol); },
   wall(vol = 1) { if (!ctx) return; noise(0.07, 0.1 * vol, 4000, 900); },
   explode(vol = 1) { if (!ctx) return; noise(0.7, 0.6 * vol, 1800, 70); tone('sine', 140, 35, 0.5, 0.45 * vol); },
+  pickup() { if (!ctx) return; tone('sine', 660, 1320, 0.16, 0.2); tone('triangle', 990, 1980, 0.22, 0.1); },
+  zone() { if (!ctx) return; tone('sine', 300, 180, 0.22, 0.16); },
+  win() { if (!ctx) return; [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone('triangle', f, f, 0.35, 0.2), i * 140)); },
+  lose() { if (!ctx) return; [392, 330, 262].forEach((f, i) => setTimeout(() => tone('triangle', f, f * 0.97, 0.4, 0.18), i * 200)); },
   overheat() { if (!ctx) return; tone('square', 190, 85, 0.3, 0.13); noise(0.4, 0.07, 6000, 1500); },
 };

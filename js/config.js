@@ -11,7 +11,7 @@ export const CFG = {
     turnAccel: 7,             // 선회가 붙고 풀리는 빠르기
     bank: 0.2,                // 선회할 때 기체가 기우는 정도
     minAlt: 1.8,              // 최저 고도
-    ceiling: 45,              // 최고 고도
+    ceiling: 90,           // 최고 고도
     boostMax: 100,
     boostDrain: 28,           // 초당 소모
     boostRegen: 16,           // 초당 충전
@@ -37,8 +37,7 @@ export const CFG = {
     shieldDelay: 5,           // 맞은 뒤 실드가 다시 차기 시작하기까지 (초, 적도 같음)
     shieldRegen: 12,          // 초당 실드 회복
     hitRadius: 1.9,           // 피격 판정 반지름 (m)
-    respawn: 3,               // 격추된 뒤 다시 출격하기까지 (초)
-    spawnProtect: 2.5,        // 출격 직후 무적 시간 (초)
+    spawnProtect: 3,          // 경기 시작 직후 무적 시간 (초)
   },
   bot: {                      // 적 (쉬움 난이도)
     count: 7,
@@ -48,7 +47,7 @@ export const CFG = {
     speedScale: 0.8,          // 플레이어 대비 속도
     turnRate: 2.2,            // 선회 속도 (rad/s)
     sight: 190,               // 시야 거리 (m)
-    huntChance: 0.6,          // 순찰할 때 플레이어 근처로 향할 확률
+    huntChance: 0.3,          // 순찰할 때 플레이어 근처로 향할 확률
     reaction: 1.0,            // 상대를 본 뒤 알아채기까지 (초)
     maxOnPlayer: 2,           // 플레이어를 동시에 노릴 수 있는 적의 수
     aimTime: 0.7,             // 쏘기 전 조준선을 보여 주는 시간 (초)
@@ -62,9 +61,26 @@ export const CFG = {
     near: 35, far: 80,        // 교전 때 유지하려는 거리 (m)
     fleeBelow: 0.35,          // 체력+실드가 이 비율 아래면 달아난다
     fleeTime: 7,
-    respawn: 5,               // 격추된 뒤 다시 나타나기까지 (초)
-    spawnAway: 160,           // 플레이어에게서 이만큼 떨어진 곳에 나타난다 (m)
   },
+  zone: {                     // 자기장 (쉬움: 천천히 줄고 피해가 약하다). 한 판 약 5분.
+    phases: [                 // wait 초 기다린 뒤 shrink 초 동안 radius(m) 까지 줄어든다. dps: 밖에 있을 때 초당 피해
+      { wait: 45, shrink: 30, radius: 600, dps: 2 },
+      { wait: 40, shrink: 30, radius: 350, dps: 4 },
+      { wait: 35, shrink: 25, radius: 170, dps: 7 },
+      { wait: 30, shrink: 25, radius: 60, dps: 12 },
+      { wait: 20, shrink: 30, radius: 0, dps: 20 },
+    ],
+  },
+  items: {
+    repair: 50,               // 수리 키트 회복량
+    twinTime: 30,             // 쌍발 레이저 지속 (초)
+    boostTime: 30,            // 부스트 강화(게이지가 줄지 않음) 지속 (초)
+    respawn: 40,              // 먹힌 자리에 다시 생기기까지 (초)
+    pickup: 5,                // 줍는 거리 (m)
+    alt: 7,                   // 떠 있는 높이 (m)
+    parks: 8,                 // 아이템을 놓을 공원 수 (넓은 순)
+  },
+  match: { spawnSpread: 230 },  // 시작할 때 참가자 사이 최소 거리 (m)
   camera: { dist: 9, height: 2.6, fov: 62, zoomFov: 30, boostFov: 8 },
   mouse: { sens: 0.0022, pitchMax: 1.2 },
   spawnAlt: 20,

@@ -73,6 +73,21 @@
   #dead span { font-size: 14px; color: var(--ink); }
   #dead i { font-style: normal; font-weight: 700; color: #ffd166; }
 
+  #match { left: 50%; top: 14px; transform: translateX(-50%); text-align: center; font-size: 13px; color: var(--dim); white-space: nowrap;
+    background: var(--glass); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 5px 18px 7px; }
+  #match b { font-size: 24px; color: var(--ink); font-variant-numeric: tabular-nums; margin-right: 3px; }
+  #match em { display: block; font-style: normal; margin-top: 3px; font-size: 13px; color: #c9bcff; font-variant-numeric: tabular-nums; }
+  #match em.out { color: #ff8a7d; font-weight: 700; }
+  #buffs { left: 50%; bottom: 100px; transform: translateX(-50%); display: flex; gap: 8px; }
+  #buffs span { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 10px; background: var(--glass); border: 1px solid currentColor; font-variant-numeric: tabular-nums; }
+  #dead kbd, #result kbd { font: inherit; background: var(--glass); border: 1px solid rgba(255,255,255,.3); border-radius: 4px; padding: 0 6px; }
+  #result { left: 0; right: 0; top: 30%; text-align: center; display: none; }
+  #result.show { display: block; }
+  #result b { display: block; font-size: 64px; letter-spacing: -.03em; color: #ffd166; }
+  #result.lost b { color: var(--ink); }
+  #result span { font-size: 16px; }
+  #result p { margin: 14px 0 0; font-size: 14px; color: var(--dim); }
+
   #boost { left: 50%; bottom: 26px; width: 260px; margin-left: -130px; }
   #boost label { display: block; font-size: 11px; color: var(--dim); margin-bottom: 4px; text-align: center; letter-spacing: .08em; }
   #boost .bar { height: 8px; border-radius: 4px; background: rgba(12,17,24,.6); border: 1px solid rgba(255,255,255,.2); overflow: hidden; }
@@ -108,12 +123,15 @@
 <div id="app"></div>
 <div id="loading">홍대 상공을 준비하는 중…</div>
 
-<div id="stage" class="hud"><b>홍대 드론 로얄</b>3단계 · 교전 연습<em>격추<b id="h-kills">0</b> &nbsp; 추락<b id="h-deaths" class="d">0</b></em><div id="feed"></div></div>
+<div id="stage" class="hud"><b>홍대 드론 로얄</b>배틀로얄<em>격추<b id="h-kills">0</b></em><div id="feed"></div></div>
 <div id="cross" class="hud"><i></i><i></i><i></i><i></i><i></i></div>
 <div id="h-warn" class="hud"></div>
 <div id="vignette" class="hud"></div>
 <div id="threats" class="hud"></div>
-<div id="dead" class="hud"><b>격추당했습니다</b><span><i id="dead-by"></i>의 레이저에 맞았습니다 · <i id="dead-in">3.0</i>초 뒤 다시 출격</span></div>
+<div id="match" class="hud"><b id="h-alive">8</b><span>명 생존</span><em id="h-zone"></em></div>
+<div id="buffs" class="hud"></div>
+<div id="dead" class="hud"><b>격추당했습니다</b><span><i id="dead-by"></i> · <i id="dead-place"></i>위 · 남은 싸움을 관전 중 · <kbd>R</kbd> 다시 시작</span></div>
+<div id="result" class="hud"><b id="res-title"></b><span id="res-sub"></span><p><kbd>R</kbd> 키로 다시 시작</p></div>
 <div id="hitmark" class="hud"><i></i><i></i><i></i><i></i></div>
 <div id="toast" class="hud"></div>
 <div id="tbars" class="hud"></div>
@@ -132,13 +150,13 @@
   <kbd>W</kbd> <kbd>S</kbd> 전진·후진 &nbsp; <kbd>←</kbd> <kbd>→</kbd> 좌우 선회<br>
   <kbd>↑</kbd> <kbd>↓</kbd> 상승·하강 &nbsp; <kbd>Shift</kbd> 부스트<br>
   <kbd>Space</kbd> <kbd>좌클릭</kbd> 레이저 &nbsp; <kbd>우클릭</kbd> 줌<br>
-  <kbd>R</kbd> 처음부터 &nbsp; <kbd>M</kbd> 소리 &nbsp; <kbd>Esc</kbd> 일시 정지
+  <kbd>R</kbd> 새 경기 &nbsp; <kbd>M</kbd> 소리 &nbsp; <kbd>Esc</kbd> 일시 정지
 </div>
 
 <div id="overlay">
   <div class="card">
     <h1 id="ov-title">홍대 드론 로얄</h1>
-    <p>홍대입구역 9번출구 상공. 빨간 적 드론 7대가 날아다닙니다. 붉은 조준선이 보이면 곧 쏜다는 뜻이니 피하세요.</p>
+    <p>8명 중 마지막까지 살아남으면 우승입니다. 보라색 자기장 안에 머물고, 빛기둥이 선 아이템을 주우세요. 붉은 조준선이 보이면 곧 쏜다는 뜻입니다.</p>
     <table>
       <tr><td>마우스</td><td>조준 · 기수 방향</td></tr>
       <tr><td>W / S</td><td>전진 / 후진</td></tr>

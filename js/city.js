@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { buildTraffic } from './cars.js';
 
 const { smoothstep, lerp, clamp } = THREE.MathUtils;
 
@@ -225,14 +226,43 @@ export function buildCity(scene, renderer, D) {
     roofGreen: ['#4c7557', '#436d4e', '#557d5e', '#3f6a55'],
     roofGrey: ['#96968f', '#aeaca6', '#838388', '#a39f96', '#8e9196'],
   };
-  const buildingUniforms = { uNight: { value: 0 } };
+  // 외벽 텍스처 10장을 한 장의 배열 텍스처로 묶는다 (assets/game/wall_XX.jpg). 다 받기 전에는 회색.
+  const WALLS = 10, WALL_PX = 512;
+  const blank = new THREE.DataArrayTexture(new Uint8Array(4 * WALLS).fill(190), 1, 1, WALLS);
+  blank.colorSpace = THREE.SRGBColorSpace; blank.needsUpdate = true;
+  const buildingUniforms = { uNight: { value: 0 }, uWalls: { value: blank } };
+  {
+    const data = new Uint8Array(WALL_PX * WALL_PX * 4 * WALLS);
+    const cv = document.createElement('canvas'); cv.width = cv.height = WALL_PX;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    let left = WALLS;
+    for (let i = 0; i < WALLS; i++) {
+      const img = new Image();
+      img.onload = () => {
+        cx.drawImage(img, 0, 0, WALL_PX, WALL_PX);
+        data.set(cx.getImageData(0, 0, WALL_PX, WALL_PX).data, i * WALL_PX * WALL_PX * 4);
+        if (--left) return;
+        const t = new THREE.DataArrayTexture(data, WALL_PX, WALL_PX, WALLS);
+        t.format = THREE.RGBAFormat; t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = true;
+        t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        t.needsUpdate = true;
+        buildingUniforms.uWalls.value = t;
+      };
+      img.src = `assets/game/wall_${String(i + 1).padStart(2, '0')}.jpg`;
+    }
+  }
+  // 외관 유형별로 어울리는 텍스처 (0 벽돌 1 콘크리트 2 골함석 3 벗겨진 회벽 4 사암 5 나무 6 타일 7 복합패널 8 현무암 9 유리)
+  const TEX_FOR = [[0, 0, 0, 3, 3, 4, 6, 5, 8, 1], [9, 9, 9, 7], [1, 1, 3, 7, 7], [1, 1, 7, 7, 6, 0, 4, 2, 8, 3, 9]];
   const roofBoxes = [], roofTanks = [];
   {
-    const pos = [], nor = [], col = [], wall = [], style = [];
-    const cWall = new THREE.Color(), cRoof = new THREE.Color();
+    const pos = [], nor = [], col = [], wall = [], style = [], tex = [];
+    const cWall = new THREE.Color(), cRoof = new THREE.Color(), cTint = new THREE.Color(), WHITE = new THREE.Color(0xffffff);
+    let layer = 0;
     const vert = (x, y, h, nx, ny, nz, c, u, L, H, type, seed, shop) => {
       pos.push(x, h, -y); nor.push(nx, ny, nz); col.push(c.r, c.g, c.b);
-      wall.push(u, h, L, H); style.push(type, seed, shop);
+      wall.push(u, h, L, H); style.push(type, seed, shop); tex.push(type < 0 ? -1 : layer);
     };
     D.buildings.forEach((b, i) => {
       const [H, , , f, holes, kind] = b;
@@ -249,6 +279,8 @@ export function buildCity(scene, renderer, D) {
       else { type = 3; pal = PAL.commercial; shop = r3 < 0.8; }
       if (H < 3.5) shop = false;
       cWall.set(pickFrom(pal, r2)).multiplyScalar(0.92 + r4 * 0.16);
+      layer = pickFrom(TEX_FOR[type], r());                              // 외벽 텍스처는 무작위
+      cTint.copy(cWall).lerp(WHITE, 0.78).multiplyScalar(0.9 + r4 * 0.2);     // 텍스처에 곱할 옅은 색조
       const greenRoof = H < 26 && r3 < 0.3;
       cRoof.set(pickFrom(greenRoof ? PAL.roofGreen : PAL.roofGrey, r4)).multiplyScalar(0.9 + r1 * 0.2);
       const seed = r2 * 97 + r4;
@@ -267,7 +299,7 @@ export function buildCity(scene, renderer, D) {
           const nx = sgn * dy / L, nz = sgn * dx / L;   // 지도 법선 (dy,-dx) -> three (dy, 0, dx)
           const A = [x0, y0, 0, 0], B = [x1, y1, 0, L], Cc = [x1, y1, top, L], Dd = [x0, y0, top, 0];
           const tris = sgn > 0 ? [A, B, Cc, A, Cc, Dd] : [A, Cc, B, A, Dd, Cc];
-          for (const p of tris) vert(p[0], p[1], p[2], nx, 0, nz, cWall, p[3], L, H, type, seed, shop ? 1 : 0);
+          for (const p of tris) vert(p[0], p[1], p[2], nx, 0, nz, cTint, p[3], L, H, type, seed, shop ? 1 : 0);
         }
       });
       // 지붕
@@ -312,17 +344,20 @@ export function buildCity(scene, renderer, D) {
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setAttribute('aWall', new THREE.Float32BufferAttribute(wall, 4));
     g.setAttribute('aStyle', new THREE.Float32BufferAttribute(style, 3));
+    g.setAttribute('aTex', new THREE.Float32BufferAttribute(tex, 1));
 
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.55 });
     mat.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, buildingUniforms);
       sh.vertexShader = sh.vertexShader
-        .replace('#include <common>', 'attribute vec4 aWall;\nattribute vec3 aStyle;\nvarying vec4 vWall;\nvarying vec3 vStyle;\n#include <common>')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWall = aWall; vStyle = aStyle;');
+        .replace('#include <common>', 'attribute vec4 aWall;\nattribute vec3 aStyle;\nattribute float aTex;\nvarying vec4 vWall;\nvarying vec3 vStyle;\nvarying float vTex;\n#include <common>')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWall = aWall; vStyle = aStyle; vTex = aTex;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `
           uniform float uNight;
-          varying vec4 vWall; varying vec3 vStyle;
+          uniform sampler2DArray uWalls;
+          varying vec4 vWall; varying vec3 vStyle; varying float vTex;
+          const float TILE[10] = float[10](2.6, 7.0, 4.0, 7.0, 3.6, 4.0, 3.2, 6.0, 4.0, 6.0);   // 텍스처 한 장이 덮는 크기 (m)
           float gGlass = 0.0;
           float h21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
           float band(float x,float a,float b,float w){ return smoothstep(a-w,a+w,x)*(1.0-smoothstep(b-w,b+w,x)); }
@@ -330,7 +365,8 @@ export function buildCity(scene, renderer, D) {
         .replace('#include <color_fragment>', `#include <color_fragment>
           if (vStyle.x > -0.5) {
             float type = vStyle.x, seed = vStyle.y, L = vWall.z, H = vWall.w, y = vWall.y;
-            vec3 col = diffuseColor.rgb * (0.86 + 0.14*smoothstep(0.0, 6.0, y));
+            float tile = TILE[int(vTex + 0.5)];
+            vec3 col = texture(uWalls, vec3(vWall.x / tile, -y / tile, floor(vTex + 0.5))).rgb * diffuseColor.rgb * (0.80 + 0.20*smoothstep(0.0, 6.0, y));
             if (L > 1.7 && y < H) {
               float bay = type < 0.5 ? 2.9 : type < 1.5 ? 1.5 : type < 2.5 ? 3.6 : 2.4;
               vec2 win = type < 0.5 ? vec2(0.42,0.40) : type < 1.5 ? vec2(0.90,0.80) : type < 2.5 ? vec2(0.76,0.52) : vec2(0.68,0.50);
@@ -356,17 +392,31 @@ export function buildCity(scene, renderer, D) {
                 float cv = (y-g0)/max(0.1,H-g0)*nF, fv = fract(cv), iv = floor(cv);
                 float dv = fwidth(cv);
                 float f = 1.0 - smoothstep(0.35, 0.9, max(du,dv));
-                float m = band(fu,0.5-win.x*0.5,0.5+win.x*0.5,du)*band(fv,sill,sill+win.y,dv);
-                m = mix(win.x*win.y, m, f);
                 float hw = h21(vec2(iu + seed*31.0, iv + seed*17.0));
-                float blind = step(0.88, hw)*f;
-                col = mix(col, mix(vec3(0.11,0.15,0.20), vec3(0.27,0.28,0.29), blind), m);
-                gGlass = m*(1.0-blind);
                 float lit = step(type > 0.5 && type < 1.5 ? 0.78 : 0.64, fract(hw*7.31)) * (0.35 + 0.65*fract(hw*13.7));
                 vec3 lc = mix(vec3(1.0,0.72,0.40), vec3(0.82,0.90,1.0), step(0.72, fract(hw*3.7)));
-                totalEmissiveRadiance += uNight*m*mix(0.16, lit, f)*lc*1.1;
+                col *= 1.0 - 0.14*f*(1.0 - smoothstep(0.0, 0.05, fv));            // 층 사이 슬래브 선
+                if (vTex > 8.5) {                                                 // 유리 커튼월: 텍스처 자체가 창
+                  col *= 0.8 + 0.3*hw;
+                  gGlass = 0.85;
+                  totalEmissiveRadiance += uNight*mix(0.12, lit, f)*lc*0.6;
+                } else {
+                  float m = band(fu,0.5-win.x*0.5,0.5+win.x*0.5,du)*band(fv,sill,sill+win.y,dv);
+                  float fr = band(fu,0.5-win.x*0.5-0.04,0.5+win.x*0.5+0.04,du)*band(fv,sill-0.05,sill+win.y+0.04,dv);
+                  m = mix(win.x*win.y, m, f);
+                  float blind = step(0.88, hw)*f;
+                  col = mix(col, vec3(0.80,0.80,0.78), clamp(fr - m, 0.0, 1.0)*f*0.9);                       // 창틀
+                  float gy = clamp((fv - sill)/win.y, 0.0, 1.0);
+                  vec3 glass = mix(vec3(0.06,0.09,0.13), vec3(0.24,0.33,0.42), gy*0.7) * (1.0 - 0.5*smoothstep(0.75, 1.0, gy));   // 위쪽은 그늘
+                  col = mix(col, mix(glass, vec3(0.27,0.28,0.29), blind), m);
+                  gGlass = m*(1.0-blind);
+                  totalEmissiveRadiance += uNight*m*mix(0.16, lit, f)*lc*1.1;
+                }
               }
             }
+            col *= 0.86 + 0.14*smoothstep(0.0, 0.3, min(vWall.x, L - vWall.x));   // 벽 모서리
+            col *= 1.0 - 0.22*step(H - 0.4, y)*step(y, H);                         // 처마 띠
+            if (y > H) col = mix(col, vec3(0.5), 0.55);                             // 옥상 난간
             diffuseColor.rgb = col;
           }`)
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.07, gGlass);')
@@ -421,66 +471,7 @@ export function buildCity(scene, renderer, D) {
   }
 
   // ---------- 차량 ----------
-  const cars = [];
-  let carBody, carCabin, carLights;
-  {
-    const paths = D.carPaths.map(([w, oneway, lanes, f]) => {
-      const cum = [0];
-      for (let i = 0; i < f.length / 2 - 1; i++) cum.push(cum[i] + Math.hypot(f[2 * i + 2] - f[2 * i], f[2 * i + 3] - f[2 * i + 1]));
-      return { w, oneway, lanes, f, cum, len: cum[cum.length - 1] };
-    });
-    const COLORS = [0xf2f2f0, 0xf2f2f0, 0xe9e9e6, 0x1c1d20, 0x1c1d20, 0x8f9499, 0xb9bdc2, 0x52565c, 0x2c4a7c, 0xa3272b, 0xe08a1e /*택시*/];
-    const r = rng(99);
-    paths.forEach(p => {
-      const lw = p.w / p.lanes;
-      const lanesList = [];
-      if (p.oneway) for (let k = 0; k < p.lanes; k++) lanesList.push({ off: -p.w / 2 + (k + 0.5) * lw, dir: 1 });
-      else { const half = Math.max(1, Math.floor(p.lanes / 2)), hw = p.w / 2 / half; for (let k = 0; k < half; k++) { lanesList.push({ off: (k + 0.5) * hw, dir: 1 }); lanesList.push({ off: (k + 0.5) * hw, dir: -1 }); } }
-      for (const ln of lanesList) {
-        const speed = 7 + r() * 6;                       // 같은 차로는 같은 속도 → 추돌 없음
-        let s = r() * 40;
-        while (s < p.len) {
-          const bus = r() < 0.06;
-          cars.push({ p, s, speed, off: ln.off, dir: ln.dir, color: bus ? 0x2f7d4f : pickFrom(COLORS, r()), len: bus ? 2.4 : 0.9 + r() * 0.15, tall: bus ? 1.9 : 1 });
-          s += 28 + r() * 70;
-        }
-      }
-    });
-    const bodyGeo = new THREE.BoxGeometry(4.5, 0.85, 1.85); bodyGeo.translate(0, 0.72, 0);
-    const cabGeo = new THREE.BoxGeometry(2.5, 0.62, 1.65); cabGeo.translate(-0.2, 1.42, 0);
-    carBody = new THREE.InstancedMesh(bodyGeo, stdMat({ roughness: 0.45, metalness: 0.3 }), cars.length);
-    carCabin = new THREE.InstancedMesh(cabGeo, stdMat({ color: 0x1b2026, roughness: 0.15, metalness: 0.6 }), cars.length);
-    const c = new THREE.Color();
-    cars.forEach((car, i) => carBody.setColorAt(i, c.set(car.color)));
-    carBody.frustumCulled = carCabin.frustumCulled = false;
-    carBody.instanceMatrix.setUsage(THREE.DynamicDrawUsage); carCabin.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    const lg = new THREE.BufferGeometry();          // 전조등 (밤)
-    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cars.length * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    carLights = new THREE.Points(lg, lampMat.clone());
-    carLights.material.size = 7; carLights.frustumCulled = false;
-    scene.add(carBody, carCabin, carLights);
-  }
-  const carDummy = new THREE.Object3D();
-  function updateCars(dt) {
-    const lp = carLights.geometry.attributes.position;
-    for (let i = 0; i < cars.length; i++) {
-      const c = cars[i], p = c.p;
-      c.s += c.speed * dt * c.dir;
-      if (c.s > p.len) c.s -= p.len; else if (c.s < 0) c.s += p.len;
-      let lo = 0, hi = p.cum.length - 1;
-      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (p.cum[m] <= c.s) lo = m; else hi = m; }
-      const x0 = p.f[2 * lo], y0 = p.f[2 * lo + 1], dx = p.f[2 * lo + 2] - x0, dy = p.f[2 * lo + 3] - y0, L = p.cum[lo + 1] - p.cum[lo] || 1;
-      const ux = dx / L, uy = dy / L, t = c.s - p.cum[lo], o = c.off * c.dir;
-      const x = x0 + ux * t + uy * o, y = y0 + uy * t - ux * o;
-      carDummy.position.set(x, 0.3, -y);
-      carDummy.rotation.y = Math.atan2(uy * c.dir, ux * c.dir);
-      carDummy.scale.set(c.len, c.tall, 1);
-      carDummy.updateMatrix();
-      carBody.setMatrixAt(i, carDummy.matrix); carCabin.setMatrixAt(i, carDummy.matrix);
-      lp.setXYZ(i, x + ux * c.dir * 2.3 * c.len, 1.0, -(y + uy * c.dir * 2.3 * c.len));
-    }
-    carBody.instanceMatrix.needsUpdate = carCabin.instanceMatrix.needsUpdate = lp.needsUpdate = true;
-  }
+  const traffic = buildTraffic(scene, D, lampMat);
 
   // ---------- 시간대 (태양 · 하늘 · 조명) ----------
   const sunDir = new THREE.Vector3();
@@ -514,8 +505,7 @@ export function buildCity(scene, renderer, D) {
     scene.fog.color.copy(FOG.night).lerp(FOG.dusk, smoothstep(elev, -10, 3)).lerp(FOG.day, smoothstep(elev, 3, 25));
     outerMat.color.copy(scene.fog.color).multiplyScalar(lerp(1.0, 0.86, day));
     buildingUniforms.uNight.value = night;
-    lampMat.opacity = night; lampPool.opacity = night * 0.3; carLights.material.opacity = night;
-    carLights.visible = night > 0.02;
+    lampMat.opacity = night; lampPool.opacity = night * 0.3; traffic.setNight(night);
 
     renderer.shadowMap.needsUpdate = true;
     const rt = pmrem.fromScene(envScene);                                // 유리 반사용 환경맵
@@ -524,5 +514,5 @@ export function buildCity(scene, renderer, D) {
     envRT = rt;
   }
 
-  return { setTime, updateCars };
+  return { setTime, updateCars: traffic.update, lampPos };
 }
