@@ -114,10 +114,12 @@
   #overlay table { margin: 0 auto 26px; border-collapse: collapse; font-size: 14px; text-align: left; }
   #overlay td { padding: 5px 14px; border-bottom: 1px solid rgba(255,255,255,.1); }
   #overlay td:first-child { color: var(--cyan); font-weight: 600; white-space: nowrap; }
-  #diffs { margin: 0 0 22px; display: flex; gap: 8px; justify-content: center; align-items: center; font-size: 13px; color: var(--dim); }
-  #diffs button { font: inherit; font-size: 14px; padding: 7px 18px; border-radius: 18px; border: 1px solid rgba(255,255,255,.3); background: transparent; color: var(--ink); cursor: pointer; }
-  #diffs button:hover { border-color: var(--cyan); }
-  #diffs button.on { background: var(--ink); color: #0c1118; border-color: var(--ink); font-weight: 700; }
+  .opts { margin: 0 0 12px; display: flex; gap: 8px; justify-content: center; align-items: center; font-size: 13px; color: var(--dim); }
+  .opts button { font: inherit; font-size: 14px; padding: 7px 18px; border-radius: 18px; border: 1px solid rgba(255,255,255,.3); background: transparent; color: var(--ink); cursor: pointer; }
+  .opts button:hover { border-color: var(--cyan); }
+  #times { margin-bottom: 22px; }
+  .opts > span { width: 44px; text-align: right; }
+  .opts button.on { background: var(--ink); color: #0c1118; border-color: var(--ink); font-weight: 700; }
   #count { left: 0; right: 0; top: 30%; text-align: center; font-size: 96px; font-weight: 800; color: #fff; opacity: 0; letter-spacing: -.03em; }
   #count.show { opacity: 1; }
   #res-stats { color: var(--dim); font-size: 13px; }
@@ -173,8 +175,10 @@
       <tr><td>Shift</td><td>부스트</td></tr>
       <tr><td>Space · 좌클릭</td><td>레이저 발사 (연사하면 과열)</td></tr>
       <tr><td>우클릭</td><td>줌</td></tr>
+      <tr><td>T</td><td>시간대 바꾸기 (낮 · 노을 · 밤)</td></tr>
     </table>
-    <div id="diffs"><span>난이도</span><button data-diff="easy">쉬움</button><button data-diff="normal">보통</button><button data-diff="hard">어려움</button></div>
+    <div id="diffs" class="opts"><span>난이도</span><button data-diff="easy">쉬움</button><button data-diff="normal">보통</button><button data-diff="hard">어려움</button></div>
+    <div id="times" class="opts"><span>시간대</span><button data-time="day">낮</button><button data-time="dusk">노을</button><button data-time="night">밤</button></div>
     <span id="ov-go">클릭하면 시작합니다</span>
   </div>
 </div>

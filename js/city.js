@@ -600,15 +600,15 @@ export function buildCity(scene, renderer, D) {
     if (elev > -1) {
       sun.position.copy(sunDir).multiplyScalar(2600);
       sun.color.set(0xff9350).lerp(new THREE.Color(0xfff4e4), smoothstep(elev, 2, 30));
-      sun.intensity = 2.0 * smoothstep(elev, -1, 7);
+      sun.intensity = 2.0 * smoothstep(elev, -1, 7) * (1 + 0.35 * low);   // 해가 낮을수록 빛이 길고 짙게 든다
     } else {                                                             // 달빛
       sun.position.set(-900, 1700, 1100);
       sun.color.set(0x8fa6e8);
-      sun.intensity = 0.55 * night;
+      sun.intensity = 0.85 * night;
     }
-    hemi.intensity = lerp(0.22, 0.6, day);
-    hemi.color.set(0x2a3a66).lerp(new THREE.Color(0xdfeaff), day);
-    hemi.groundColor.set(0x1a1c22).lerp(new THREE.Color(0x8a8478), day);
+    hemi.intensity = lerp(0.42, 0.6, day);              // 밤에도 드론과 건물 윤곽이 보일 만큼은 밝게
+    hemi.color.set(0x6276b0).lerp(new THREE.Color(0xdfeaff), day).lerp(new THREE.Color(0xffc49a), low * day * 0.55);   // 밤은 푸르게, 노을은 붉게
+    hemi.groundColor.set(0x3c4250).lerp(new THREE.Color(0x8a8478), day);
     renderer.toneMappingExposure = lerp(0.7, 0.6, day);
     scene.fog.color.copy(FOG.night).lerp(FOG.dusk, smoothstep(elev, -10, 3)).lerp(FOG.day, smoothstep(elev, 3, 25));
     outerMat.color.copy(scene.fog.color).multiplyScalar(lerp(1.0, 0.86, day));

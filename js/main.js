@@ -33,7 +33,6 @@ $('app').appendChild(renderer.domElement);
 const canvas = renderer.domElement;
 
 const city = buildCity(scene, renderer, D);
-city.setTime(CFG.timeOfDay);
 const street = buildStreet(scene, D, city.lampPos);
 const people = buildPeople(scene, D);
 const world = new World(D);
@@ -76,6 +75,7 @@ function openYaw(x, y, z) {
 }
 function startMatch() {
   over = false; spectate = null; zoneTick = 0; shake = 0;
+  hurt = 0; toastTimer = 0; hud.toast.classList.remove('show');      // 지난 경기의 피격 표시와 알림을 지운다
   startT = 3; lastCount = 4; prevShrink = false;      // 3초 초읽기 뒤에 시작
   zone.reset(nav); items.reset();
   // 참가자를 길 위에 서로 떨어뜨려 놓는다
@@ -178,6 +178,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR' && playing) { startMatch(); toast('새 경기'); }
   if (e.code === 'KeyM') toast(toggleMute() ? '소리 끔' : '소리 켬');
   if (!playing && DIFF_KEYS[e.code]) setDifficulty(DIFF_KEYS[e.code]);
+  if (e.code === 'KeyT') { const names = Object.keys(TIMES); setTimeOfDay(names[(names.indexOf(timeName) + 1) % names.length]); toast('시간대: ' + TIMES[timeName].label); }
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); zoom = trigger = false; });
@@ -202,6 +203,17 @@ function setDifficulty(name, restart = true) {
   if (restart) { startMatch(); $('ov-title').textContent = '홍대 드론 로얄'; $('ov-go').textContent = '클릭하면 시작합니다'; }
 }
 diffButtons.forEach(b => b.addEventListener('click', e => { e.stopPropagation(); setDifficulty(b.dataset.diff); }));
+// 시간대: 시작·일시 정지 화면의 버튼 또는 T 키. 경기 중에도 바로 바뀐다.
+const TIMES = { day: { label: '낮', hour: CFG.timeOfDay }, dusk: { label: '노을', hour: 17.75 }, night: { label: '밤', hour: 21 } };
+const timeButtons = [...document.querySelectorAll('#times button')];
+let timeName = 'day';
+function setTimeOfDay(name) {
+  timeName = TIMES[name] ? name : 'day';
+  city.setTime(TIMES[timeName].hour);
+  try { localStorage.setItem('hdr-time', timeName); } catch (e) {}
+  timeButtons.forEach(b => b.classList.toggle('on', b.dataset.time === timeName));
+}
+timeButtons.forEach(b => b.addEventListener('click', e => { e.stopPropagation(); setTimeOfDay(b.dataset.time); }));
 canvas.addEventListener('click', () => { if (document.pointerLockElement !== canvas) canvas.requestPointerLock(); });
 document.addEventListener('pointerlockchange', () => {
   playing = document.pointerLockElement === canvas;
@@ -659,10 +671,13 @@ function tick(now) {
 let savedDiff = 'easy';
 try { savedDiff = localStorage.getItem('hdr-diff') || 'easy'; } catch (e) {}
 setDifficulty(savedDiff, false);
+let savedTime = 'day';
+try { savedTime = localStorage.getItem('hdr-time') || 'day'; } catch (e) {}
+setTimeOfDay(savedTime);
 startMatch();
 $('loading').remove();
 requestAnimationFrame(tick);
 
 // 디버그·자동 시험용
 window.__game = { step: d => { dt = d; simulate(); }, me, bots, fighters, aim, world, nav, zone, items, keys, camera, scene, renderer, bolts, fx, CFG,
-  startMatch, setDifficulty, isOver: () => over, setDebugPlay: v => { debugPlay = v; } };
+  startMatch, setDifficulty, setTimeOfDay, isOver: () => over, setDebugPlay: v => { debugPlay = v; } };
