@@ -1,4 +1,4 @@
-// 지도 데이터(MAP_DATA)로 도시 장면을 만든다. index.html 지도 뷰어의 렌더링을 게임용으로 옮긴 것.
+// 지도 데이터(MAP_DATA)로 도시 장면을 만든다. viewer.html 지도 뷰어의 렌더링을 게임용으로 옮긴 것.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Sky } from 'three/addons/objects/Sky.js';

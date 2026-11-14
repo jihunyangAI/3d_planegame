@@ -2,9 +2,11 @@
 
 홍대입구역 9번출구를 중심으로 반경 1km를 브라우저에서 돌려 볼 수 있는 3D 지도입니다.
 
+드론 게임 바로 하기: https://jihunyangai.github.io/3d_planegame/ (지도만 보기: https://jihunyangai.github.io/3d_planegame/viewer.html)
+
 ## 보기
 
-`index.html`을 브라우저로 열면 됩니다. three.js를 CDN에서 불러오므로 인터넷 연결이 필요합니다.
+`viewer.html`을 브라우저로 열면 됩니다. three.js를 CDN에서 불러오므로 인터넷 연결이 필요합니다.
 
 - 왼쪽 드래그 회전 · 오른쪽 드래그 이동 · 휠 확대/축소
 - 건물에 마우스를 올리면 이름·높이·면적 표시
@@ -19,7 +21,7 @@
 python serve.py
 ```
 
-을 실행하고 브라우저에서 `http://localhost:8765/game.html`을 엽니다. (`game.html`은 파일을 직접 열면 동작하지 않습니다. `serve.py`는 브라우저가 예전 파일을 캐시해 두지 않게 하는 작은 서버입니다.)
+을 실행하고 브라우저에서 `http://localhost:8765/`를 엽니다. (`index.html`은 파일을 직접 열면 동작하지 않습니다. `serve.py`는 브라우저가 예전 파일을 캐시해 두지 않게 하는 작은 서버입니다.)
 
 - 마우스 조준 · `W`/`S` 전후진 · `←`/`→` 좌우 선회 · `↑`/`↓` 상승/하강 · `Space`/좌클릭 레이저 · `Shift` 부스트 · 우클릭 줌 · `[`/`]` 마우스 감도 · `R` 새 경기 · `M` 소리 · 난이도는 시작·일시 정지 화면의 버튼이나 `1`/`2`/`3` · `T` 시간대(낮·노을·밤)
 - 게임용 지도 `map_game.js`는 도로를 넓히고(대로 36m, 중간 도로 24m, 골목 14m) 건물 높이를 1.5배(최소 12m)로 키운 것입니다. `python build_map.py --game`으로 다시 만들며 `shapely`가 필요합니다.
@@ -30,11 +32,11 @@ python serve.py
 
 | 파일 | 내용 |
 | --- | --- |
-| `index.html` | 3D 지도 페이지 (three.js) |
+| `viewer.html` | 3D 지도 페이지 (three.js) |
 | `map_data.js` | 지도 데이터 (`build_map.py`가 생성) |
 | `build_map.py` | OSM 원본을 미터 좌표의 압축 데이터로 변환 |
 | `data/` | Overpass API에서 받은 OSM 원본 |
-| `game.html`, `js/` | 드론 게임 (`city.js` 도시 렌더링, `world.js` 충돌, `drone.js` 드론, `weapons.js` 레이저, `fighter.js` 체력·실드, `nav.js` 길찾기, `bots.js` 적 AI, `zone.js` 자기장, `items.js` 아이템, `dronemodel.js` 드론 기체, `pilot.js` 조종사·레이저총, `trees.js` 나무 여섯 종, `cars.js` 차량 20종, `street.js` 신호등·표지판, `people.js` 보행자, `fx.js` 효과, `audio.js` 효과음, `main.js` 게임 루프) |
+| `index.html`, `js/` | 드론 게임 (`city.js` 도시 렌더링, `world.js` 충돌, `drone.js` 드론, `weapons.js` 레이저, `fighter.js` 체력·실드, `nav.js` 길찾기, `bots.js` 적 AI, `zone.js` 자기장, `items.js` 아이템, `dronemodel.js` 드론 기체, `pilot.js` 조종사·레이저총, `trees.js` 나무 여섯 종, `cars.js` 차량 20종, `street.js` 신호등·표지판, `people.js` 보행자, `fx.js` 효과, `audio.js` 효과음, `main.js` 게임 루프) |
 | `map_game.js` | 게임용 지도 데이터 (`build_map.py --game`이 생성) |
 | `assets/` | 참고 그림 원본 (건물 외벽, 캐릭터, 총, 차량) |
 | `assets/game/`, `tools/build_assets.py` | 게임이 불러 쓰는 가공된 텍스처와 그 생성 스크립트 |
