@@ -34,7 +34,7 @@ python -m http.server 8765
 | `map_data.js` | 지도 데이터 (`build_map.py`가 생성) |
 | `build_map.py` | OSM 원본을 미터 좌표의 압축 데이터로 변환 |
 | `data/` | Overpass API에서 받은 OSM 원본 |
-| `game.html`, `js/` | 드론 게임 (`city.js` 도시 렌더링, `world.js` 충돌, `drone.js` 드론, `weapons.js` 레이저, `fighter.js` 체력·실드, `nav.js` 길찾기, `bots.js` 적 AI, `zone.js` 자기장, `items.js` 아이템, `pilot.js` 조종사·레이저총, `cars.js` 차량 20종, `street.js` 신호등·표지판, `people.js` 보행자, `fx.js` 효과, `audio.js` 효과음, `main.js` 게임 루프) |
+| `game.html`, `js/` | 드론 게임 (`city.js` 도시 렌더링, `world.js` 충돌, `drone.js` 드론, `weapons.js` 레이저, `fighter.js` 체력·실드, `nav.js` 길찾기, `bots.js` 적 AI, `zone.js` 자기장, `items.js` 아이템, `dronemodel.js` 드론 기체, `pilot.js` 조종사·레이저총, `trees.js` 나무 여섯 종, `cars.js` 차량 20종, `street.js` 신호등·표지판, `people.js` 보행자, `fx.js` 효과, `audio.js` 효과음, `main.js` 게임 루프) |
 | `map_game.js` | 게임용 지도 데이터 (`build_map.py --game`이 생성) |
 | `assets/` | 참고 그림 원본 (건물 외벽, 캐릭터, 총, 차량) |
 | `assets/game/`, `tools/build_assets.py` | 게임이 불러 쓰는 가공된 텍스처와 그 생성 스크립트 |

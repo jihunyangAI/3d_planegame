@@ -2,48 +2,23 @@
 import * as THREE from 'three';
 import { CFG } from './config.js';
 import { createPilot } from './pilot.js';
+import { createDroneBody } from './dronemodel.js';
 
 // 기수는 -Z 방향. 원점이 충돌 구의 중심.
 export function createDroneModel(accent = 0x35d6ff, enemy = false) {
   const root = new THREE.Group();          // 위치 + 방위(yaw)
   const tilt = new THREE.Group();          // 가속에 따른 기울임
   root.add(tilt);
-  const dark = new THREE.MeshStandardMaterial({ color: 0x23272e, roughness: 0.55, metalness: 0.5 });
-  const grey = new THREE.MeshStandardMaterial({ color: 0x8b929b, roughness: 0.5, metalness: 0.6 });
-  const glow = new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 1.6, roughness: 0.4 });
-  const suit = new THREE.MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.8 });
-  const add = (geo, mat, x, y, z, parent = tilt) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
-
-  // 기체
-  add(new THREE.BoxGeometry(0.9, 0.26, 1.7), dark, 0, -0.1, 0);
-  add(new THREE.BoxGeometry(0.5, 0.2, 0.5), grey, 0, 0.0, -0.95);                 // 기수
-  add(new THREE.BoxGeometry(0.94, 0.06, 1.2), glow, 0, -0.25, 0.1);               // 바닥 발광 띠
-  add(new THREE.BoxGeometry(0.3, 0.12, 0.08), glow, 0, -0.05, 0.86);              // 꼬리등
-  // 로터 4개
-  const rotors = [];
-  const ringGeo = new THREE.TorusGeometry(0.62, 0.045, 6, 20); ringGeo.rotateX(Math.PI / 2);
-  const bladeGeo = new THREE.BoxGeometry(1.15, 0.02, 0.1);
-  const discMat = new THREE.MeshBasicMaterial({ color: 0xd8e4ee, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
-  const discGeo = new THREE.CircleGeometry(0.58, 20); discGeo.rotateX(-Math.PI / 2);
-  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-    const x = sx * 1.02, z = sz * 1.02;
-    const arm = add(new THREE.BoxGeometry(0.1, 0.08, 1.25), grey, x / 2, -0.05, z / 2);
-    arm.rotation.y = Math.atan2(x, z);
-    add(new THREE.CylinderGeometry(0.11, 0.13, 0.22, 10), dark, x, 0.02, z);
-    add(ringGeo, glow, x, 0.12, z);
-    const spin = new THREE.Group(); spin.position.set(x, 0.16, z); tilt.add(spin);
-    add(bladeGeo, dark, 0, 0, 0, spin);
-    add(bladeGeo, dark, 0, 0, 0, spin).rotation.y = Math.PI / 2;
-    add(discGeo, discMat, 0, 0.01, 0, spin);
-    rotors.push(spin);
-  }
+  const body = createDroneBody(accent, enemy);     // 동체·덕트 팬·스키드·추진기 (dronemodel.js)
+  tilt.add(body.group);
+  const rotors = body.rotors;
   // 조종사: 드론 위에 올라서서 레이저총을 겨눈다
   const pilot = createPilot({ enemy });
   pilot.root.position.set(0, 0.03, 0.04);
   tilt.add(pilot.root);
   const muzzle = pilot.muzzle;
 
-  return { root, tilt, rotors, muzzle, pilot };
+  return { root, tilt, rotors, muzzle, pilot, flames: body.flames };
 }
 
 export class Drone {
@@ -118,6 +93,8 @@ export class Drone {
     m.tilt.rotation.z += (-vr * 0.5 + bank - m.tilt.rotation.z) * kt;
     const spin = (38 + this.vel.length() * 0.8) * dt;
     m.rotors.forEach((r, i) => { r.rotation.y += i % 2 ? spin : -spin; });
+    m.flames.visible = this.boosting;                 // 부스트할 때 추진기에서 불꽃이 뻗는다
+    if (this.boosting) m.flames.scale.set(1, 1, 0.75 + Math.random() * 0.5);
   }
 
   get speed() { return Math.hypot(this.vel.x, this.vel.z); }

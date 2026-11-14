@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { buildTraffic } from './cars.js';
 import { makeAsphaltTest } from './roadgrid.js';
+import { buildTrees } from './trees.js';
 
 const { smoothstep, lerp, clamp } = THREE.MathUtils;
 
@@ -575,27 +576,7 @@ export function buildCity(scene, renderer, D) {
   }
 
   // ---------- 나무 ----------
-  {
-    const allTrees = D.trees.concat(lotTrees);
-    const n = allTrees.length, dummy = new THREE.Object3D(), c = new THREE.Color();
-    const crowns = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ flatShading: true }), n * 2);
-    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.24, 1, 6), new THREE.MeshLambertMaterial({ color: 0x5b4a3a }), n);
-    const GREENS = [0x4f7f3a, 0x5c8c42, 0x44733a, 0x6b9648, 0x567f35, 0x7a9b4a, 0x3f6b36];
-    allTrees.forEach(([x, y, s], i) => {
-      const r = rng(i + 7), th = 2.6 * s + r() * 0.8, cr = (2.1 + r() * 0.9) * s;
-      dummy.rotation.set(0, r() * 6.28, 0);
-      dummy.position.set(x, th / 2, -y); dummy.scale.set(s, th, s); dummy.updateMatrix(); trunks.setMatrixAt(i, dummy.matrix);
-      c.set(pickFrom(GREENS, r())).multiplyScalar(0.85 + r() * 0.3);
-      dummy.position.set(x, th + cr * 0.75, -y); dummy.scale.set(cr, cr * (1.05 + r() * 0.3), cr); dummy.updateMatrix();
-      crowns.setMatrixAt(2 * i, dummy.matrix); crowns.setColorAt(2 * i, c);
-      // 작은 덩어리를 하나 더 붙여 실루엣을 불규칙하게
-      const a = r() * 6.28, k = cr * 0.55;
-      dummy.position.set(x + Math.cos(a) * k, th + cr * (0.5 + r() * 0.6), -y + Math.sin(a) * k); dummy.scale.setScalar(cr * (0.55 + r() * 0.2)); dummy.updateMatrix();
-      crowns.setMatrixAt(2 * i + 1, dummy.matrix); crowns.setColorAt(2 * i + 1, c.multiplyScalar(0.92 + r() * 0.2));
-    });
-    crowns.castShadow = trunks.castShadow = true; crowns.receiveShadow = true;
-    scene.add(crowns, trunks);
-  }
+  buildTrees(scene, D.trees.concat(lotTrees));       // 가로수·공원·빈터의 나무 (수종 여섯 가지, trees.js)
 
   // ---------- 차량 ----------
   const traffic = buildTraffic(scene, D, lampMat);
